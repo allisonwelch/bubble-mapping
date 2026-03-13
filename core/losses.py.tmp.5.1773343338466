@@ -10,17 +10,12 @@ import torch.nn.functional as F
 
 # Small constant added to avoid division-by-zero errors
 # (e.g., when both pred and ground truth are empty)
-# In ML, this is called "epsilon" and prevents log(0) or 1/0 disasters during training.
-# Using 1e-6 instead of 0 gives numerical stability without changing results meaningfully.
 _EPS = 1e-6
 
 # Try to import scipy for advanced boundary-quality metrics.
 # Scipy enables Hausdorff distance (HD95) and normalized surface distance (NSD),
 # which measure boundary errors in pixels rather than just overlap.
 # These are optional but strongly recommended for accurate surface distance evaluation.
-# Why boundary metrics? Overlap metrics (Dice, IoU) don't penalize subtle shape distortions.
-# If your bubble boundary is off by 2 pixels, Dice might still be high, but the bubble is visually wrong.
-# Hausdorff and NSD catch these boundary deviations that matter for precision applications.
 try:
     import numpy as np
     from scipy.ndimage import binary_erosion, distance_transform_edt
@@ -28,7 +23,6 @@ try:
     _HAS_SCIPY = True
 except Exception:  # pragma: no cover
     _HAS_SCIPY = False
-    # If scipy missing, set these to None so we can check later and raise a helpful error
     np = None  # type: ignore[assignment]
     binary_erosion = None  # type: ignore[assignment]
     distance_transform_edt = None  # type: ignore[assignment]
@@ -43,30 +37,23 @@ def _ensure_nchw_1(yt: torch.Tensor, yp: torch.Tensor) -> Tuple[torch.Tensor, to
     This function converts everything to the NCHW convention (Batch, Channel, Height, Width)
     where there's exactly 1 channel (binary mask for bubble detection).
 
-    TENSOR SHAPES EXPLAINED:
-    - B (Batch): number of images in the batch (e.g., 8 images at once)
-    - C (Channel): number of channels (1 for binary segmentation, 3 for RGB)
-    - H, W (Height, Width): spatial dimensions of the image
-    - NCHW = PyTorch convention; NHWC = TensorFlow/NumPy convention
-
     It also handles edge cases like resizing y_pred to match y_true's spatial dimensions,
     and clamps values to [0, 1] for probability-like outputs.
     """
     # Convert y_true to (B, 1, H, W)
     # If input is 3D (H, W, or B, H, W), add a batch or channel dimension
     if yt.ndim == 3:
-        yt = yt.unsqueeze(1)  # 3D -> 4D by adding dimension at position 1
+        yt = yt.unsqueeze(1)
     if yt.ndim != 4:
         raise ValueError(f"y_true must be 3D/4D, got {yt.ndim}D")
     if yt.shape[1] != 1:
-        # If multi-channel (e.g., one-hot encoded with class 0=background, class 1=bubbles),
-        # extract the foreground channel (class 1 = bubbles) or just take the first channel if only one exists
+        # If multi-channel, extract the foreground channel (class 1 = bubbles)
+        # or just take the first channel if only one exists
         if yt.shape[1] > 1:
-            yt = yt[:, 1:2]  # Extract channel 1 (bubbles) from multi-channel one-hot
+            yt = yt[:, 1:2]  # Extract channel 1 (bubbles) from multi-channel
         else:
             yt = yt[:, :1]
     # Clamp to [0, 1] range and convert to float
-    # Ground truth should be strictly 0 (background) or 1 (bubble), so clamp is defensive
     yt = yt.float().clamp(0.0, 1.0)
 
     # Convert y_pred (prediction) to (B, 1, H, W)
@@ -77,30 +64,26 @@ def _ensure_nchw_1(yt: torch.Tensor, yp: torch.Tensor) -> Tuple[torch.Tensor, to
         raise ValueError(f"y_pred must be 3D/4D, got {yp.ndim}D")
 
     # NHWC detection: if dimension 1 looks wrong but dimension 3 looks right, permute
-    # This catches models that output channels in the last position (NumPy/TensorFlow convention)
-    # instead of position 1 (PyTorch convention). Automatic fix for easy debugging.
+    # This catches models that output channels in the last position (NumPy convention)
+    # instead of position 1 (PyTorch convention)
     if yp.shape[1] not in (1, yt.shape[1]) and yp.shape[-1] in (1, yt.shape[1]):
-        yp = yp.permute(0, 3, 1, 2).contiguous()  # NHWC -> NCHW: move channel to position 1
+        yp = yp.permute(0, 3, 1, 2).contiguous()  # NHWC -> NCHW
 
     # If multi-class output, extract the bubble class (channel 1)
-    # For example, a model trained on 2 classes outputs shape (B, 2, H, W)
-    # We only care about the bubble probability, which is channel 1
     if yp.shape[1] > 1:
         cls_idx = 1 if yp.shape[1] > 1 else 0
         yp = yp[:, cls_idx:cls_idx + 1]
 
     # Handle edge case: predictions with no channels (malformed tensor)
-    # This shouldn't happen in normal usage, but is a safety net
     if yp.shape[1] == 0:
         yp = torch.zeros(
             (yt.shape[0], 1, max(1, yp.shape[-2]), max(1, yp.shape[-1])),
             dtype=torch.float32,
-            device=yt.device,  # Keep predictions on the same device (CPU/GPU) as ground truth
+            device=yt.device,
         )
 
     # Ensure spatial dimensions match: resize predictions to ground truth's H, W
     # This handles cases where the model outputs a different resolution than the input
-    # (e.g., model outputs 256x256 but ground truth is 512x512)
     if yp.shape[-2:] != yt.shape[-2:]:
         if yp.numel() == 0 or yp.shape[-2] == 0 or yp.shape[-1] == 0:
             # Empty prediction tensor: fill with zeros at correct size
@@ -111,17 +94,12 @@ def _ensure_nchw_1(yt: torch.Tensor, yp: torch.Tensor) -> Tuple[torch.Tensor, to
             )
         else:
             # Resize using bilinear interpolation (smooth, differentiable)
-            # "differentiable" = gradients flow backward through resizing for training
-            # "bilinear" = smoothly interpolates between pixels (better than nearest-neighbor)
             yp = F.interpolate(
                 yp.float(), size=yt.shape[-2:], mode="bilinear", align_corners=False
             )
 
     # Clamp predictions to a safe probability range [eps, 1-eps]
-    # NOT [0, 1] because:
-    # - log(0) = -inf, which breaks training
-    # - log(1) or -log(1) = 0, which can cause gradient issues
-    # Using eps (1e-6) avoids numerical instability while staying close to 0 and 1
+    # (not [0, 1] to avoid log(0) in downstream loss computations)
     yp = yp.float().clamp(_EPS, 1.0 - _EPS)
     return yt, yp
 
@@ -137,40 +115,26 @@ def dice_coef(y_true: torch.Tensor, y_pred: torch.Tensor, eps: float = _EPS) -> 
     Dice measures overlap between predicted and ground truth masks.
     It's especially useful for imbalanced data where one class is rare (like bubbles in an image).
     Unlike accuracy, Dice doesn't penalize predicting nothing when the object is truly absent.
-    Imagine a 512x512 image with only 100 bubble pixels: a model predicting "all background"
-    gets 99.96% accuracy, but 0% Dice. This is why Dice is the right metric for segmentation.
 
     FORMULA: Dice = 2 * |intersection| / (|pred| + |ground_truth|)
     - Ranges from 0 (no overlap) to 1 (perfect match)
-    - The "2.0 *" factor normalizes the formula: it turns the denominator into
-      sum(pred) + sum(truth), which balances sensitivity between over-predicting and under-predicting
-
-    THE NUMERATOR: 2 * intersection
-    - intersection = sum(pred * truth) = how much predicted area overlaps with true area
-    - Multiplying by 2 ensures Dice = 1 when pred == truth (since 2*inter / (inter + inter) = 1)
+    - The "2.0 *" upweights intersection to balance the denominator
 
     PIXEL-BY-PIXEL INTUITION:
     If pred = [0.9, 0.8, 0.2] and truth = [1, 1, 0], then:
-      intersection = 0.9 + 0.8 = 1.7 (multiply element-wise and sum)
+      intersection = 0.9 + 0.8 = 1.7
       sum(truth) = 2, sum(pred) = 1.9
-      dice = 2 * 1.7 / (2 + 1.9) ≈ 0.9 (good match, slight under-prediction)
+      dice = 2 * 1.7 / (2 + 1.9) ≈ 0.9
     """
     yt, yp = _ensure_nchw_1(y_true, y_pred)
 
     # Intersection: element-wise multiply (only where both pred and truth are high)
-    # For soft predictions: pred * truth multiplies probabilities, so high confidence
-    # predictions where truth is high contribute more to intersection
-    # dim=(1, 2, 3) means sum over channels, height, and width, keeping only batch dimension
     inter = torch.sum(yt * yp, dim=(1, 2, 3))
 
     # Denominator: sum of all predicted mass plus all ground truth mass
-    # This is the total "amount" of bubble pixels we predicted + ground truth
-    # Higher denominator = bigger objects = Dice naturally handles class imbalance
     den = torch.sum(yt, dim=(1, 2, 3)) + torch.sum(yp, dim=(1, 2, 3))
 
     # Compute Dice per batch, add eps to avoid division by zero
-    # Without eps, if both masks are empty (no bubbles), we'd compute 0 / 0 = nan
-    # eps=1e-6 makes this 1e-6 / 1e-6 = 1.0, which makes sense (perfect match of "nothing")
     dice = (2.0 * inter + eps) / (den + eps)
 
     return dice.mean()  # Average across batch
@@ -181,12 +145,6 @@ def dice_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
     Dice Loss: 1 - Dice Coefficient.
     Used during training to encourage high Dice scores.
     (A loss function should be minimized; hence we subtract from 1.)
-
-    WHY THIS EXISTS:
-    Deep learning models are trained by minimizing a loss function (via gradient descent).
-    Dice is a metric to maximize, so we flip it: loss = 1 - dice.
-    When Dice=1 (perfect), loss=0 (ideal). When Dice=0 (terrible), loss=1 (bad).
-    This makes Dice a trainable objective: the model learns to maximize overlap.
     """
     return 1.0 - dice_coef(y_true, y_pred)
 
@@ -197,40 +155,28 @@ def IoU(y_true: torch.Tensor, y_pred: torch.Tensor, eps: float = _EPS) -> torch.
 
     WHY IT MATTERS:
     IoU measures how well pred and truth overlap relative to their combined area.
-    Stricter than Dice (penalizes false positives and false negatives equally and symmetrically).
-
-    INTUITION: "What fraction of the total bubble area is correctly predicted?"
-    Think of it as: (correct bubbles) / (any bubble, real or false alarm)
-    - If you predict a 10x10 bubble that overlaps 8x8 with ground truth, and there are no other bubbles:
-      IoU = 64 / (100 + 100 - 64) = 64 / 136 ≈ 0.47
-    - Same scenario with Dice: 2*64 / (100 + 100) = 128 / 200 = 0.64 (more lenient)
+    Stricter than Dice (penalizes false positives and false negatives equally).
 
     FORMULA: IoU = |intersection| / |union|
     - union = |pred| + |ground_truth| - |intersection|
-      (we subtract intersection once because it's counted in both pred and ground_truth)
     - Ranges from 0 (no overlap) to 1 (perfect match)
 
     COMPARISON WITH DICE:
     Dice and IoU are related: IoU = Dice / (2 - Dice)
     - Dice is more lenient; IoU is stricter
-    - Use Dice for imbalanced data, IoU for perfectly balanced evaluation
+    - Use Dice for imbalanced data, IoU for balanced evaluation
     - Both value intersection, but IoU penalizes non-overlapping areas more harshly
-    - In competitive benchmarks, IoU is often the standard metric
     """
     yt, yp = _ensure_nchw_1(y_true, y_pred)
 
     # Intersection: element-wise product (high only where both are high)
-    # For soft predictions: sum(pred * truth) gives weighted overlap
     inter = torch.sum(yt * yp, dim=(1, 2, 3))
 
     # Union: all pixels that are "on" in either pred or truth, minus double-counted overlap
-    # sum(pred + truth) counts intersection twice, so subtract it once
-    # Example: pred=[1,0], truth=[1,1] -> sum(pred)=1, sum(truth)=2, sum(pred+truth)=3
-    # union = 3 - 1 = 2 (pixels that are 1 in at least one, counted once)
+    # (sum(A + B) - intersection to avoid counting intersection twice)
     union = torch.sum(yt + yp, dim=(1, 2, 3)) - inter
 
     # IoU = intersection / union
-    # Edge case: both pred and truth are empty -> union=0, so eps prevents 0/0
     iou = (inter + eps) / (union + eps)
 
     return iou.mean()  # Average across batch
@@ -245,27 +191,20 @@ def accuracy(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
     a model that predicts "all background" achieves 95% accuracy—but detects NO bubbles!
     This is why Dice, IoU, or Tversky are better for imbalanced problems.
 
-    Accuracy = (TP + TN) / total pixels
-    TP = correctly found bubble, TN = correctly found background
-    In imbalanced data, TN dominates, so accuracy doesn't reflect bubble detection skill.
-
     COMPUTATION:
-    1. Threshold predictions at 0.5 (convert probabilities to binary: hard decision)
-    2. Compare to binary ground truth (also thresholded at 0.5)
+    1. Threshold predictions at 0.5 (convert probabilities to binary)
+    2. Compare to binary ground truth
     3. Count matches across all pixels and average across batch
     """
     yt, yp = _ensure_nchw_1(y_true, y_pred)
 
     # Threshold: predictions >= 0.5 are "bubble", < 0.5 are "background"
-    # Why 0.5? It's the natural decision boundary for probabilities in [0, 1]
-    # Note: this is a hard threshold (binary decision), unlike Dice which uses soft probabilities
     yb = (yp >= 0.5).float()
 
     # Count pixels where prediction matches ground truth (both thresholded at 0.5)
-    # (yb == (yt >= 0.5)) is a boolean tensor, converted to float for summation
     correct = torch.sum((yb == (yt >= 0.5)).float(), dim=(1, 2, 3))
 
-    # Total pixels per image (height * width)
+    # Total pixels per image
     total = yt.shape[2] * yt.shape[3]
 
     return (correct / total).mean()  # Accuracy per image, averaged across batch
@@ -276,35 +215,28 @@ def sensitivity(y_true: torch.Tensor, y_pred: torch.Tensor, eps: float = _EPS) -
     Sensitivity (also called Recall or True Positive Rate).
 
     WHAT IT MEASURES: "Of all actual bubbles, how many did we find?"
-    Sensitivity = TP / (TP + FN) = TP / (all real bubbles)
+    Sensitivity = TP / (TP + FN)
     - TP (True Positive): predicted bubble, actually is a bubble
     - FN (False Negative): predicted background, actually is a bubble
     - High sensitivity = catch almost all bubbles (low false negative rate)
     - Low sensitivity = miss many bubbles
 
-    INTUITION: Imagine a 100-bubble image. You find 90 bubbles.
-    Sensitivity = 90 / 100 = 0.90 (90% of real bubbles found)
-
     WHY IT MATTERS FOR BUBBLES:
     Missing bubbles (FN) is often worse than false alarms (FP), so high sensitivity is critical.
     For example: in quality control, missing defects is costlier than inspecting false alarms.
-    You want to catch defects even if you sometimes flag clean areas (low specificity is OK).
     """
     yt, yp = _ensure_nchw_1(y_true, y_pred)
 
     # Threshold predictions at 0.5
     yb = (yp >= 0.5).float()
 
-    # True Positives: correctly predicted as bubble (1 * 1 = 1 only where both pred and truth are 1)
+    # True Positives: correctly predicted as bubble (1 * 1)
     tp = torch.sum(yb * yt, dim=(1, 2, 3))
 
-    # False Negatives: predicted background but is actually bubble
-    # (1 - yb) is 1 where prediction is 0, yt is 1 where truth is bubble
-    # (1 - yb) * yt is 1 only where pred=0 but truth=1 (missed bubble)
+    # False Negatives: predicted background but is actually bubble ((1 - 1) * 1 = 0 but we want: predicted 0, truth 1)
     fn = torch.sum((1 - yb) * yt, dim=(1, 2, 3))
 
-    # Sensitivity = TP / (TP + FN) = real bubbles found / total real bubbles
-    # eps prevents division by zero if there are no actual bubbles (TP + FN = 0)
+    # Sensitivity = TP / (TP + FN)
     return ((tp + eps) / (tp + fn + eps)).mean()  # Average across batch
 
 
@@ -313,37 +245,28 @@ def specificity(y_true: torch.Tensor, y_pred: torch.Tensor, eps: float = _EPS) -
     Specificity (also called True Negative Rate or 1 - False Positive Rate).
 
     WHAT IT MEASURES: "Of all actual background, how much did we correctly reject?"
-    Specificity = TN / (TN + FP) = TN / (all background pixels)
+    Specificity = TN / (TN + FP)
     - TN (True Negative): predicted background, actually is background
     - FP (False Positive): predicted bubble, actually is background
     - High specificity = few false alarms (low false positive rate)
     - Low specificity = many false positives
 
-    INTUITION: Imagine 10,000 background pixels. You correctly reject 9,500 and falsely flag 500.
-    Specificity = 9,500 / 10,000 = 0.95 (95% of background correctly rejected)
-
     WHY IT MATTERS FOR BUBBLES:
-    False positives (incorrectly flagging background as bubbles) waste inspection time and cause
-    operators to investigate non-issues. High specificity means fewer false alarms.
-    Trade-off: you might need to sacrifice some sensitivity to gain specificity, or vice versa.
+    False positives (incorrectly flagging background as bubbles) waste inspection time.
+    Balance between sensitivity (catch all bubbles) and specificity (avoid false alarms).
     """
     yt, yp = _ensure_nchw_1(y_true, y_pred)
 
     # Threshold predictions at 0.5
     yb = (yp >= 0.5).float()
 
-    # True Negatives: correctly predicted as background
-    # (1 - yb) is 1 where pred=0, (1 - yt) is 1 where truth=0
-    # (1 - yb) * (1 - yt) is 1 only where pred=0 AND truth=0 (correctly skipped background)
+    # True Negatives: correctly predicted as background ((1 - 0) * (1 - 0) = 1 when both are background)
     tn = torch.sum((1 - yb) * (1 - yt), dim=(1, 2, 3))
 
-    # False Positives: predicted bubble but is actually background
-    # yb is 1 where pred=1, (1 - yt) is 1 where truth=0
-    # yb * (1 - yt) is 1 only where pred=1 BUT truth=0 (false alarm)
+    # False Positives: predicted bubble but is actually background (1 * (1 - 1) when pred=1, truth=0)
     fp = torch.sum(yb * (1 - yt), dim=(1, 2, 3))
 
-    # Specificity = TN / (TN + FP) = correctly rejected / all background
-    # eps prevents division by zero if there's no background (unlikely, but safe)
+    # Specificity = TN / (TN + FP)
     return ((tn + eps) / (tn + fp + eps)).mean()  # Average across batch
 
 
@@ -351,26 +274,17 @@ def f1_score(y_true: torch.Tensor, y_pred: torch.Tensor, eps: float = _EPS) -> t
     """
     F1 Score: Harmonic mean of Precision and Recall.
 
-    PRECISION AND RECALL:
-    - Precision = TP / (TP + FP) = "of what we predicted as bubbles, how many were correct?"
-      High precision = few false alarms, but might miss some bubbles
-    - Recall = TP / (TP + FN) = "of all real bubbles, how many did we find?"
-      High recall = catch all bubbles, but might have false alarms
-    - F1 = 2 * (precision * recall) / (precision + recall) = harmonic mean
-      Harmonic mean emphasizes when both precision and recall are high
-
     THE DICE-F1 CONNECTION:
     For binary segmentation with probabilistic (soft) predictions:
     - Dice and F1 are mathematically equivalent!
     - F1 = 2 * (precision * recall) / (precision + recall)
     - Dice = 2 * intersection / (pred_sum + truth_sum)
     - Both balance between finding objects (recall) and not over-predicting (precision)
-    - They're the same formula applied to overlapping regions
 
     WHY USE F1 VS DICE:
-    - Dice is more intuitive for pixel overlap visualization
-    - F1 is standard in ML literature and easier to explain to non-ML audiences
-    - For soft segmentation, they measure the same thing
+    - Dice is more intuitive for pixel overlap
+    - F1 is standard in ML literature
+    - For segmentation, they measure the same thing
     """
     # This is mathematically identical to dice_coef for soft predictions
     return dice_coef(y_true, y_pred, eps=eps)
@@ -384,22 +298,15 @@ def f_beta(y_true: torch.Tensor, y_pred: torch.Tensor, beta: float = 2.0, eps: f
     F_beta = (1 + beta^2) * (precision * recall) / (beta^2 * precision + recall)
 
     BETA INTERPRETATION:
-    - beta = 1.0 (F1): Equal weight to precision and recall (balanced tradeoff)
-    - beta = 2.0 (F2): Recall has beta^2=4x more weight than precision
-      → Emphasizes finding all bubbles, tolerates some false alarms
-      → Loss to recall = 4x loss to precision, so recall is 4x more important
-    - beta = 0.5 (F0.5): Precision has (1/0.5)^2 = 4x more weight than recall
-      → Emphasizes accuracy, accepts missing some bubbles
-      → Loss to precision = 4x loss to recall
+    - beta = 1.0 (F1): Equal weight to precision and recall
+    - beta = 2.0 (F2): Recall twice as important as precision
+      → Prefers catching all bubbles, tolerates some false alarms
+    - beta = 0.5 (F0.5): Precision twice as important as recall
+      → Prefers accuracy, accepts missing some bubbles
 
     FOR BUBBLE DETECTION:
-    beta=2.0 is common because missing a bubble (FN, hurts recall) is costlier than a false alarm
-    (FP, hurts precision). With beta=2, you'd rather have 100 false alarms than miss 1 real bubble.
-
-    EXAMPLE: Imagine two models on same test set:
-    Model A: precision=0.9, recall=0.9 → F1=0.9, F2=0.9
-    Model B: precision=0.95, recall=0.85 → F1=0.89, F2=0.86
-    With F2, we prefer model A (higher recall) despite lower precision.
+    beta=2.0 is common because missing a bubble (FN) is costlier than a false alarm (FP).
+    It emphasizes sensitivity: "Don't miss the defects!"
     """
     yt, yp = _ensure_nchw_1(y_true, y_pred)
 
@@ -407,23 +314,17 @@ def f_beta(y_true: torch.Tensor, y_pred: torch.Tensor, beta: float = 2.0, eps: f
     yb = (yp >= 0.5).float()
 
     # Count TP, FP, FN across all pixels
-    # TP = pred=1 AND truth=1 (correct bubble detection)
     tp = torch.sum(yb * yt, dim=(1, 2, 3))
-    # FP = pred=1 BUT truth=0 (false alarm)
     fp = torch.sum(yb * (1 - yt), dim=(1, 2, 3))
-    # FN = pred=0 BUT truth=1 (missed bubble)
     fn = torch.sum((1 - yb) * yt, dim=(1, 2, 3))
 
     # Precision: "of what we predicted as bubbles, how many were correct?"
-    # = TP / (TP + FP) = correct / all predictions as bubble
     prec = (tp + eps) / (tp + fp + eps)
 
     # Recall: "of actual bubbles, how many did we find?" (same as sensitivity)
-    # = TP / (TP + FN) = correct / all real bubbles
     rec = (tp + eps) / (tp + fn + eps)
 
     # F_beta formula with beta^2 weighting
-    # The beta^2 term emphasizes recall when beta > 1
     b2 = beta * beta
     fbeta = (1 + b2) * (prec * rec) / (b2 * prec + rec + eps)
 
@@ -450,62 +351,42 @@ def tversky(
 
     WHY TVERSKY FOR BUBBLES:
     Bubbles are rare objects. A model that predicts "no bubbles" has high accuracy/Dice
-    but zero sensitivity. Tversky lets you penalize FN and FP asymmetrically, tailoring
-    the loss to your application's priorities.
+    but zero sensitivity. Tversky lets you penalize FN and FP asymmetrically.
 
     WHAT ALPHA CONTROLS (FP weight):
     - alpha = 0.0: Ignore false positives entirely (only care about finding bubbles)
-      → Metric = TP / (TP + beta*FN)
-    - alpha = 1.0: Weight FP same as FN (like Dice when beta=1)
-      → Metric = TP / (TP + FP + FN) = symmetric cost
+    - alpha = 1.0: Weight FP same as FN (like Dice)
     - alpha = 0.5: Default; FP has half the penalty of FN
-      → Penalize false alarms half as much as missed bubbles
 
     WHAT BETA CONTROLS (FN weight):
     - beta = 0.0: Ignore false negatives (don't care if we miss bubbles)
-      → Metric = TP / (TP + alpha*FP)
     - beta = 1.0: Weight FN same as FP
-      → Metric = TP / (TP + alpha*FP + FN) = mixed penalty
-    - beta = 0.5: Default; FN is 2x more costly than FP
-      → Metric = TP / (TP + alpha*FP + 0.5*FN) = emphasizes catching all bubbles
-
-    THE DICE-TVERSKY RELATIONSHIP:
-    - Dice is Tversky(alpha=1, beta=1)
-    - Setting alpha < 1 says: "I can tolerate false alarms"
-    - Setting beta > alpha says: "Missing bubbles is worse than false alarms"
+    - beta = 0.5: Default; FN is 2x more costly than FP (we'd rather over-predict)
 
     INTERPRETATION:
     Tversky(alpha=0.5, beta=0.5) is between Dice and a sensitivity-focused metric.
-    It says: "Finding bubbles matters more than avoiding false alarms (2x cost), but false
-    alarms still hurt the metric, so don't just predict everything as a bubble."
+    It says: "Finding bubbles matters more than avoiding false alarms, but false alarms still cost."
     """
     yt, yp = _ensure_nchw_1(y_true, y_pred)
 
     # Rename for clarity (p = prediction, g = ground truth, 1 = foreground, 0 = background)
-    p1 = yp  # Predicted foreground (bubble probability, range [eps, 1-eps])
-    g1 = yt  # Ground truth foreground (bubble mask, binary 0 or 1)
-    p0 = 1.0 - p1  # Predicted background (complement, range [eps, 1-eps])
-    g0 = 1.0 - g1  # Ground truth background (complement, binary 0 or 1)
+    p1 = yp  # Predicted foreground (bubble probability)
+    g1 = yt  # Ground truth foreground (bubble mask)
+    p0 = 1.0 - p1  # Predicted background
+    g0 = 1.0 - g1  # Ground truth background
 
     # Count TP, FP, FN as weighted sums (soft metrics because predictions are probabilistic)
-    # For soft predictions: element-wise multiply gives weighted overlap
-    tp = torch.sum(p1 * g1, dim=(1, 2, 3))  # Predicted bubble prob where truth is bubble
-    fp = torch.sum(p1 * g0, dim=(1, 2, 3))  # Predicted bubble prob where truth is background
-    fn = torch.sum(p0 * g1, dim=(1, 2, 3))  # Predicted background prob where truth is bubble
+    tp = torch.sum(p1 * g1, dim=(1, 2, 3))  # Predicted and true foreground overlap
+    fp = torch.sum(p1 * g0, dim=(1, 2, 3))  # Predicted foreground but true background
+    fn = torch.sum(p0 * g1, dim=(1, 2, 3))  # Predicted background but true foreground
 
     # Tversky with parametric penalty weights
-    # alpha and beta control the asymmetric cost: FN is penalized beta times, FP is penalized alpha times
     return ((tp + eps) / (tp + alpha * fp + beta * fn + eps)).mean()
 
 
 def _tversky_loss(alpha: float, beta: float):
     """
     Factory function to create a Tversky loss with specific alpha/beta.
-
-    WHY A FACTORY FUNCTION:
-    We need to "freeze" alpha and beta into a loss function that only takes (y_true, y_pred).
-    The factory pattern lets us create multiple loss functions with different hyperparameters.
-    This is useful in training: you might want to experiment with alpha=0.3 vs alpha=0.5.
 
     Returns a loss function (to minimize) from Tversky (to maximize).
     Used with get_loss() to configure training loss functions.
@@ -515,23 +396,14 @@ def _tversky_loss(alpha: float, beta: float):
       loss = loss_fn(y_true, y_pred)  # Returns scalar to minimize
     """
     def _fn(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
-        # Loss = 1 - Tversky (we want to maximize Tversky during training, so minimize loss)
-        # When Tversky = 1 (perfect), loss = 0 (ideal)
-        # When Tversky = 0 (terrible), loss = 1 (bad)
+        # Loss = 1 - Tversky (we want to maximize Tversky, minimize loss)
         return 1.0 - tversky(y_true, y_pred, alpha=alpha, beta=beta)
     return _fn
 
 
 # ================ Heavy metrics (distance in PIXELS, EDT-based) ================
 # These measure boundary quality by looking at distances between predicted and true surfaces
-# Much more computationally expensive than overlap metrics, but critical for boundary accuracy.
-#
-# WHY BOUNDARY METRICS?
-# Overlap metrics (Dice, IoU) measure "how much of the bubble do we cover", but they don't
-# penalize subtle shape distortions. If a bubble is 100x100 and you predict 99x99 (off by 1 pixel
-# all around), overlap metrics are still high, but the boundary is wrong. Hausdorff Distance (HD)
-# and Normalized Surface Distance (NSD) specifically measure boundary errors in pixel distances,
-# making them critical for applications where shape precision matters (e.g., medical imaging).
+# Much more computationally expensive than overlap metrics, but critical for boundary accuracy
 
 def _require_scipy() -> None:
     """Guard clause: raise error if SciPy not installed (needed for EDT-based distances)."""
@@ -577,38 +449,67 @@ def _assd_and_hd95_pixels_2d(
     pr_bool: "np.ndarray",
 ) -> Tuple[float, float]:
     """
-    Compute (ASSD, HD95) in PIXELS for a single 2D pair, using EDT on surfaces.
+    Compute Average Surface Distance (ASSD) and Hausdorff Distance 95th percentile (HD95)
+    in PIXELS for a single 2D mask pair, using Euclidean Distance Transform (EDT).
 
-    HD95 is computed as:
-      HD95 = max(p95(dist(pr_surface -> gt_surface)), p95(dist(gt_surface -> pr_surface)))
+    ASSD (Average Surface Distance):
+    - Average distance from predicted surface to nearest ground-truth surface pixel
+    - Plus average distance from GT surface to nearest predicted surface pixel
+    - Lower is better; 0 = perfect boundary alignment
+
+    HD95 (Hausdorff Distance 95th percentile):
+    - Max distance at the 95th percentile (not the absolute max, which can be an outlier)
+    - Measures the worst (but not the absolute worst) boundary deviation
+    - Lower is better; 0 = perfect boundary alignment
+    - The 95th percentile makes it more robust to a few outlier pixels than using the max
+
+    WHY USE EDT:
+    EDT computes distance from every pixel to the nearest background pixel.
+    By computing EDT on the complement (~s), we get distance to the nearest surface pixel.
+
+    ALGORITHM:
+    1. Extract surfaces (boundaries) of both masks using erosion
+    2. Compute EDT on complement of each surface
+    3. Query the distance map at surface pixel locations
+    4. Compute percentiles and averages
     """
+    # Extract 1-pixel boundaries from both masks
     s_gt = _surface_np(gt_bool)
     s_pr = _surface_np(pr_bool)
 
+    # Diagonal of image in pixels (used as penalty for empty masks)
     H, W = gt_bool.shape
     diag = float(np.sqrt(H * H + W * W))
 
-    # Edge cases: empty surfaces
+    # Edge case 1: both surfaces empty => perfect match (distance 0)
     if s_gt.sum() == 0 and s_pr.sum() == 0:
         return 0.0, 0.0
+
+    # Edge case 2: exactly one surface empty => huge penalty (image diagonal)
     if s_gt.sum() == 0 or s_pr.sum() == 0:
         return diag, diag
 
-    # EDT gives distance to nearest "False" (0) pixel; so compute EDT on complement of surface.
-    dt_gt = distance_transform_edt(~s_gt)
-    dt_pr = distance_transform_edt(~s_pr)
+    # Compute EDT on the COMPLEMENT of surfaces
+    # This gives us: for each pixel, distance to nearest surface pixel
+    dt_gt = distance_transform_edt(~s_gt)  # Distance to nearest GT surface
+    dt_pr = distance_transform_edt(~s_pr)  # Distance to nearest predicted surface
 
-    d_pr_to_gt = dt_gt[s_pr]  # distances at predicted surface pixels to nearest GT surface
-    d_gt_to_pr = dt_pr[s_gt]  # distances at GT surface pixels to nearest predicted surface
+    # Sample distance maps at surface pixel locations
+    d_pr_to_gt = dt_gt[s_pr]  # For each predicted surface pixel, distance to nearest GT surface
+    d_gt_to_pr = dt_pr[s_gt]  # For each GT surface pixel, distance to nearest predicted surface
 
-    # Safety
+    # Safety: if somehow no surface pixels exist, return penalty
     if d_pr_to_gt.size == 0 or d_gt_to_pr.size == 0:
         return diag, diag
 
+    # ASSD: average of bidirectional surface distances
     assd = 0.5 * (float(d_pr_to_gt.mean()) + float(d_gt_to_pr.mean()))
+
+    # HD95: 95th percentile of bidirectional distances
+    # (more robust to outliers than maximum distance)
     hd95 = max(
-        float(np.percentile(d_pr_to_gt, 95)),
-        float(np.percentile(d_gt_to_pr, 95)),
+        float(np.percentile(d_pr_to_gt, 95)),  # 95th percentile of pred->GT distances
+        float(np.percentile(d_gt_to_pr, 95)),  # 95th percentile of GT->pred distances
     )
     return assd, hd95
 

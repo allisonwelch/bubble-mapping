@@ -4,3 +4,13 @@
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+# Ignore Claude
+CLAUDE.md
+pipeline_guide.md
+# Ignore virtual environment folders
+venv-bubble/
+.venv/
+
+# Ignore compiled Python files
+*.pyc
+
