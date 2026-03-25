@@ -7,6 +7,8 @@ import warnings
 import numpy as np
 from osgeo import gdal  # GDAL is used for reading/writing geospatial raster data (satellite imagery)
 
+REPO_PATH = r"C:\Users\amwelch3\git_repos\bubble-mapping"
+
 
 class Configuration:
     """
@@ -30,38 +32,36 @@ class Configuration:
 
         # Training data and imagery
         # These folders contain the raw satellite imagery and ground truth labels (training labels are called "geopackages" or .gpkg files)
+        # geopackages are expected to be inside training_data_dir
         self.training_data_dir = (
-            f"/isipd/projects/p_planetdw/data/methods_test/training/{self.modality}"
+            f"{REPO_PATH}/data/training/{self.modality}"
         )
         self.training_area_fn = "training_areas.gpkg"  # Geopackage defining where training data exists
         self.training_polygon_fn = f"labels_{self.modality}.gpkg"  # The actual labeled polygons (bubbles, non-bubbles) for training
-        self.focus_areas = f"focus_areas_{self.modality}.gpkg"  # Regions of special interest
+        # Set to a filename (e.g. f"focus_areas_{self.modality}.gpkg") if you have a focus-areas
+        # geopackage; leave as None to skip focus-area chip generation entirely.
+        self.focus_areas = None  # Regions of special interest (optional)
 
         # Directory containing the raw satellite images (.tif files) for the chosen modality
         self.training_image_dir = (
-            f"/isipd/projects/p_planetdw/data/methods_test/training_images/{self.modality}"
+            f"{REPO_PATH}/data/training_images/{self.modality}"
         )
-
-        # If you have a predefined train/val/test split, point to its JSON file here
-        # Otherwise set to None and the code will create a random split based on test_ratio and val_ratio
-        self.split_list_path = "/isipd/projects/p_planetdw/data/methods_test/preprocessed/20251226-0433_UNETxAE/aa_frames_list.json"
-
 
         # Preprocessed data roots
         # After the raw imagery is converted into 256x256 patches, they're saved here
         self.preprocessed_base_dir = (
-            f"/isipd/projects/p_planetdw/data/methods_test/preprocessed"
+            f"{REPO_PATH}/data/preprocessed/"
         )
 
         # Alternative base directory for processed training data
         self.training_data_base_dir = (
-            f"/isipd/projects/p_planetdw/data/methods_test/training_data/"
+            f"{REPO_PATH}/data/training_data/"
         )
         # The specific folder where preprocessed patches will be saved for THIS experiment
         # Update the timestamp to run a new preprocessing
         self.preprocessed_dir = (
-            "/isipd/projects/p_planetdw/data/methods_test/training_data/"
-            "20251226-0433_UNETxAE"
+            f"{REPO_PATH}/data/preprocessed/"
+            f"2026-03-26_UNETxAE"
         )
 
 
@@ -71,11 +71,11 @@ class Configuration:
         # Set to None to train from scratch
         self.continue_model_path = None
         # Where the best trained model weights will be saved after training completes
-        self.saved_models_dir = f"/isipd/projects/p_planetdw/data/methods_test/models/UNET/{self.modality}"
+        self.saved_models_dir = f"{REPO_PATH}/data/models/UNET/{self.modality}"
         # Training logs (loss curves, validation metrics) go here for later visualization
-        self.logs_dir = f"/isipd/projects/p_planetdw/data/methods_test/logs/UNET/{self.modality}"
+        self.logs_dir = f"{REPO_PATH}/data/logs/UNET/{self.modality}"
         # Final predictions on test set go here
-        self.results_dir = f"/isipd/projects/p_planetdw/data/methods_test/results/UNET/{self.modality}"
+        self.results_dir = f"{REPO_PATH}data/results/UNET/{self.modality}"
 
         # -------- IMAGE / CHANNELS --------
         # Satellite imagery is stored in GeoTIFF format (.tif), a standard format for geo-referenced raster data
@@ -90,7 +90,7 @@ class Configuration:
         # Sentinel-2 has 12 bands (includes more specialized bands like coastal aerosol, SWIR, etc.)
         # Setting channels_used to True/False lets you pick which bands to feed to the model
         if self.modality != "S2":
-            self.channels_used = [True, True, True, True]  # Use all 4 RGBN bands
+            self.channels_used = [True, True, True]  # Use 3 RGB bands
         else:
             self.channels_used = [True, True, True, True, True, True, True, True, True, True, True, True]  # Use all 12 S2 bands
 
@@ -118,21 +118,24 @@ class Configuration:
         # If you already have a train/val/test split you want to reuse, point to the JSON file here
         # Otherwise leave as None and the code will randomly split based on the ratios above
         self.split_list_path = None  # Optional path to predefined train/val/test split lists
+        # "/isipd/projects/p_planetdw/data/methods_test/preprocessed/20251226-0433_UNETxAE/aa_frames_list.json"
 
-        # Manual test set — prefix-based override
-        # If set, any source image whose FILENAME starts with this prefix will have ALL of its
-        # training areas forced into the test split. Those areas are excluded from the random
-        # train/val/test split entirely, so they are guaranteed never to appear in training.
+        # Manual test set — prefix-based override (currently disabled)
+        # Uncomment the block below to re-enable forced prefix-based test splitting.
         #
-        # Use this when you have separate ground-truth ("field-labeled") imagery that should
-        # serve as your held-out test set, independent of the automatic random split.
-        #
-        # Example:
-        #   self.manual_test_image_prefix = "FIELD_"
-        #   -> any image file named "FIELD_*.tif" in training_image_dir will be test-only.
-        #
-        # Leave as None to use the standard random split (or split_list_path if set).
-        self.manual_test_image_prefix = None
+        # # If set, any source image whose FILENAME starts with this prefix will have ALL of its
+        # # training areas forced into the test split. Those areas are excluded from the random
+        # # train/val/test split entirely, so they are guaranteed never to appear in training.
+        # #
+        # # Use this when you have separate ground-truth ("field-labeled") imagery that should
+        # # serve as your held-out test set, independent of the automatic random split.
+        # #
+        # # Example:
+        # #   self.manual_test_image_prefix = "FIELD_"
+        # #   -> any image file named "FIELD_*.tif" in training_image_dir will be test-only.
+        # #
+        # # Leave as None to use the standard random split (or split_list_path if set).
+        # self.manual_test_image_prefix = None
 
         # -------- TRAINING (CORE) --------
         # The model processes satellite images as 256x256 pixel patches
@@ -309,7 +312,7 @@ class Configuration:
         # Random seed for reproducibility (None = non-deterministic, results vary)
         # Set to an integer (e.g., 42) if you need identical results across runs
         # Useful for publishing results or debugging; slower than non-deterministic mode
-        self.seed = None
+        self.seed = 123
 
         # Gradient clipping: if gradients exceed this norm, scale them down
         # Prevents "exploding gradients" which cause training to diverge
@@ -328,6 +331,11 @@ class Configuration:
         self.train_image_type = self.image_file_type
         # Prefix added to training image filenames (if any)
         self.train_image_prefix = ""
+        # Attribute field in training_area_fn whose value is the .tif basename (no extension)
+        # that each training area belongs to. When set, areas are matched to images by this
+        # field rather than by spatial overlap — required when .tif files overlap spatially.
+        # Set to None to fall back to the legacy spatial-overlap matching.
+        self.image_link_field = "image_link"
         # File format for saved predictions
         self.predict_images_file_type = self.image_file_type
         # Prefix added to prediction filenames (if any)
@@ -351,12 +359,12 @@ class Configuration:
         # Which GPU to use for training
         # 7 = GPU #7 (useful if you have multiple GPUs and want to avoid conflicts with other jobs)
         # -1 = use CPU (much slower but useful for debugging)
-        self.selected_GPU = 7
+        self.selected_GPU = 1
 
         # GDAL configuration for geospatial data handling
         gdal.UseExceptions()  # Make GDAL report errors as exceptions instead of silently failing
         gdal.SetCacheMax(32000000000)  # Cache size for GDAL operations (32 GB)
-        gdal.SetConfigOption("CPL_LOG", "/dev/null")  # Suppress GDAL log messages
+        gdal.SetConfigOption("CPL_LOG", "NUL")  # Suppress GDAL log messages
         # Suppress Python warnings to reduce clutter in training output
         warnings.filterwarnings("ignore")
 

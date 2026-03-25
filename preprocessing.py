@@ -43,8 +43,12 @@ def get_areas_and_polygons():
     # Each row is one rectangular region; the 'geometry' column holds the
     # Shapely polygon objects that define each rectangle's spatial bounds.
     areas = gpd.read_file(os.path.join(config.training_data_dir, config.training_area_fn))
-    # Drop all attribute columns, keeping only geometry (we don't need metadata like names)
-    areas = areas.drop(columns=[c for c in areas.columns if c != "geometry"])
+    # Keep geometry plus image_link_field (if configured) for image matching.
+    # Drop all other attribute columns — we don't need them downstream.
+    keep_cols = {"geometry"}
+    if getattr(config, "image_link_field", None) and config.image_link_field in areas.columns:
+        keep_cols.add(config.image_link_field)
+    areas = areas.drop(columns=[c for c in areas.columns if c not in keep_cols])
 
     # Load the hand-annotated bubble polygons from a shapefile/geopackage.
     # Each row is one bubble's boundary.
@@ -95,33 +99,60 @@ def get_images_with_training_areas(areas):
             ):
                 image_paths.append(os.path.join(root, fname))
 
-    # Filter images to those that actually contain training areas
-    images_with_areas = []
-    for im in image_paths:
-        # Open the raster (satellite image) with rasterio to read metadata
-        with rasterio.open(im) as raster:
-            # raster.bounds = (left, bottom, right, top) in native coordinates.
-            # Convert to a rectangular Shapely geometry for spatial comparison.
-            im_bounds = box(*raster.bounds)
-            # CRS = Coordinate Reference System. A CRS defines how lat/lon maps to
-            # a 2D coordinate system. Examples: EPSG:4326 (WGS84, lat/lon degrees),
-            # EPSG:6933 (equal-area meters). All geometries must be in the same CRS
-            # to meaningfully compare their spatial overlap.
-            image_crs = raster.crs
+    # --- image_link matching (preferred when .tif files overlap spatially) ---
+    # When config.image_link_field is set, each training area carries a field whose
+    # value is the .tif basename (no extension) it belongs to. We build a dict from
+    # basename -> full path, then group area indices by their linked image.
+    image_link_field = getattr(config, "image_link_field", None)
 
-        # Sanity check: skip images in a different CRS than our training areas
-        # (they can't be compared spatially without reprojection)
-        if image_crs != areas.crs:
-            continue
+    if image_link_field and image_link_field in areas.columns:
+        from pathlib import Path
 
-        # Find which training area rectangles overlap this satellite image.
-        # areas.envelope returns the bounding box of each area (as a rectangle).
-        # .intersects(im_bounds) returns a boolean array: True if area overlaps image.
-        # np.where(...)[0] converts booleans to indices of matching areas.
-        areas_in_image = np.where(areas.envelope.intersects(im_bounds))[0]
-        if len(areas_in_image) > 0:
-            # Store (image_path, list_of_area_ids) for later processing
-            images_with_areas.append((im, [int(x) for x in list(areas_in_image)]))
+        # Map .tif basename (no extension) -> full path for every discovered image
+        stem_to_path = {Path(p).stem: p for p in image_paths}
+
+        # Group area row-indices by the image they belong to
+        link_to_area_ids = {}
+        for idx, row in areas.iterrows():
+            stem = row[image_link_field]
+            if stem not in stem_to_path:
+                print(f"\n  WARNING: image_link '{stem}' (area {idx}) has no matching .tif — skipped.")
+                continue
+            link_to_area_ids.setdefault(stem, []).append(int(idx))
+
+        images_with_areas = [
+            (stem_to_path[stem], ids) for stem, ids in link_to_area_ids.items()
+        ]
+
+    else:
+        # --- Legacy spatial-overlap matching ---
+        # For each image, find which training areas fall inside its geographic bounds.
+        images_with_areas = []
+        for im in image_paths:
+            # Open the raster (satellite image) with rasterio to read metadata
+            with rasterio.open(im) as raster:
+                # raster.bounds = (left, bottom, right, top) in native coordinates.
+                # Convert to a rectangular Shapely geometry for spatial comparison.
+                im_bounds = box(*raster.bounds)
+                # CRS = Coordinate Reference System. A CRS defines how lat/lon maps to
+                # a 2D coordinate system. Examples: EPSG:4326 (WGS84, lat/lon degrees),
+                # EPSG:6933 (equal-area meters). All geometries must be in the same CRS
+                # to meaningfully compare their spatial overlap.
+                image_crs = raster.crs
+
+            # Sanity check: skip images in a different CRS than our training areas
+            # (they can't be compared spatially without reprojection)
+            if image_crs != areas.crs:
+                continue
+
+            # Find which training area rectangles overlap this satellite image.
+            # areas.envelope returns the bounding box of each area (as a rectangle).
+            # .intersects(im_bounds) returns a boolean array: True if area overlaps image.
+            # np.where(...)[0] converts booleans to indices of matching areas.
+            areas_in_image = np.where(areas.envelope.intersects(im_bounds))[0]
+            if len(areas_in_image) > 0:
+                # Store (image_path, list_of_area_ids) for later processing
+                images_with_areas.append((im, [int(x) for x in list(areas_in_image)]))
 
     print(
         f"Done in {time.time()-start:.2f} seconds. Found {len(image_paths)} training "
@@ -980,77 +1011,60 @@ def preprocess_all(conf):
     split_list_path = getattr(config, "split_list_path", None)
 
     # -----------------------------------------------------------------------
-    # PREFIX-BASED FORCED TEST SET
-    # If config.manual_test_image_prefix is set, identify all areas whose
-    # source image filename starts with that prefix. Those areas are always
-    # assigned to the test split; the rest are split randomly as normal.
-    # This lets you supply a completely separate field-labeled test dataset
-    # without it ever leaking into training or validation.
+    # PREFIX-BASED FORCED TEST SET (currently disabled)
+    # To re-enable, uncomment the block below and change the following
+    # `if split_list_path` back to `elif split_list_path`.
     # -----------------------------------------------------------------------
-    manual_test_prefix = getattr(config, "manual_test_image_prefix", None)
-    forced_test_pos = set()
-    if manual_test_prefix:
-        prefix_str = str(manual_test_prefix)
-        for pos, stem in enumerate(written_area_stems):
-            im_path = area_to_im.get(int(stem))
-            if im_path and os.path.basename(im_path).startswith(prefix_str):
-                forced_test_pos.add(pos)
-        print(
-            f"[SPLIT] manual_test_image_prefix='{prefix_str}': "
-            f"{len(forced_test_pos)} area(s) forced to test set."
-        )
+    # manual_test_prefix = getattr(config, "manual_test_image_prefix", None)
+    # forced_test_pos = set()
+    # if manual_test_prefix:
+    #     prefix_str = str(manual_test_prefix)
+    #     for pos, stem in enumerate(written_area_stems):
+    #         im_path = area_to_im.get(int(stem))
+    #         if im_path and os.path.basename(im_path).startswith(prefix_str):
+    #             forced_test_pos.add(pos)
+    #     print(
+    #         f"[SPLIT] manual_test_image_prefix='{prefix_str}': "
+    #         f"{len(forced_test_pos)} area(s) forced to test set."
+    #     )
+    #
+    # if forced_test_pos:
+    #     splittable_pos = [i for i in range(len(frames)) if i not in forced_test_pos]
+    #     splittable_frames = [frames[i] for i in splittable_pos]
+    #     test_ratio = float(getattr(config, "test_ratio", 0.2))
+    #     val_ratio  = float(getattr(config, "val_ratio", 0.2))
+    #     val_share  = val_ratio / max(1e-9, 1.0 - test_ratio)
+    #     strata = [
+    #         1 if (getattr(fr, "annotations", None) is not None
+    #               and (np.asarray(fr.annotations) > 0).any())
+    #         else 0
+    #         for fr in splittable_frames
+    #     ]
+    #     use_strata = strata if len(set(strata)) > 1 else None
+    #     splittable_idx = list(range(len(splittable_frames)))
+    #     from sklearn.model_selection import train_test_split as _tts
+    #     try:
+    #         sub_tr, sub_va = _tts(
+    #             splittable_idx,
+    #             test_size=val_share,
+    #             random_state=int(getattr(config, "split_random_state", 1337)),
+    #             stratify=use_strata,
+    #         )
+    #     except ValueError:
+    #         sub_tr, sub_va = _tts(
+    #             splittable_idx,
+    #             test_size=val_share,
+    #             random_state=int(getattr(config, "split_random_state", 1337)),
+    #             stratify=None,
+    #         )
+    #     tr_idx = [splittable_pos[i] for i in sub_tr]
+    #     va_idx = [splittable_pos[i] for i in sub_va]
+    #     te_idx = sorted(forced_test_pos)
+    #     _write_split_json(frames_json, tr_idx, va_idx, te_idx)
+    #
+    # elif split_list_path is not None ...:  <- restore this elif when re-enabling
 
-    if forced_test_pos:
-        # Separate frames available for random splitting from the forced-test frames.
-        splittable_pos = [i for i in range(len(frames)) if i not in forced_test_pos]
-        splittable_frames = [frames[i] for i in splittable_pos]
-
-        # Split non-prefix frames into train and val ONLY — no test from this pool.
-        # Prefix-matched frames are the entire test set.
-        #
-        # val_share: fraction of the splittable pool that becomes validation.
-        # We scale val_ratio to preserve the original train:val ratio, i.e.:
-        #   val / (train + val) = val_ratio / (1 - test_ratio)
-        test_ratio = float(getattr(config, "test_ratio", 0.2))
-        val_ratio  = float(getattr(config, "val_ratio", 0.2))
-        val_share  = val_ratio / max(1e-9, 1.0 - test_ratio)
-
-        # Simple binary strata (any bubble pixels = 1, otherwise = 0) so that
-        # train and val each get a representative mix of bubble-containing frames.
-        strata = [
-            1 if (getattr(fr, "annotations", None) is not None
-                  and (np.asarray(fr.annotations) > 0).any())
-            else 0
-            for fr in splittable_frames
-        ]
-        use_strata = strata if len(set(strata)) > 1 else None
-
-        splittable_idx = list(range(len(splittable_frames)))
-
-        from sklearn.model_selection import train_test_split as _tts
-        try:
-            sub_tr, sub_va = _tts(
-                splittable_idx,
-                test_size=val_share,
-                random_state=int(getattr(config, "split_random_state", 1337)),
-                stratify=use_strata,
-            )
-        except ValueError:
-            sub_tr, sub_va = _tts(
-                splittable_idx,
-                test_size=val_share,
-                random_state=int(getattr(config, "split_random_state", 1337)),
-                stratify=None,
-            )
-
-        # Map sub-list indices back to positions in the full written_area_stems list.
-        # Only prefix-matched areas go to test — no non-prefix frames in test.
-        tr_idx = [splittable_pos[i] for i in sub_tr]
-        va_idx = [splittable_pos[i] for i in sub_va]
-        te_idx = sorted(forced_test_pos)
-        _write_split_json(frames_json, tr_idx, va_idx, te_idx)
-
-    elif split_list_path is not None and str(split_list_path).strip() != "" and os.path.exists(str(split_list_path)):
+    if split_list_path is not None and str(split_list_path).strip() != "" and os.path.exists(str(split_list_path)):
         # Load a previously saved split (ensures same frames in same splits across experiments)
         tr_idx, va_idx, te_idx = _load_split_indices_from_aalist(str(split_list_path), written_area_stems)
         _write_split_json(frames_json, tr_idx, va_idx, te_idx)
@@ -1136,29 +1150,31 @@ def preprocess_all(conf):
         # FOCUS AREAS: A separate shapefile defining where to cut chips.
         # Think of these as "regions of interest" within each training area.
         # Each focus polygon becomes one positive chip (cropped to its bounding box).
-        focus_fp = os.path.join(config.training_data_dir, getattr(config, "focus_areas"))
-        if not os.path.exists(focus_fp):
-            raise FileNotFoundError(f"Focus areas file not found: {focus_fp}")
-
-        # Load and align focus area polygons to the same CRS as training areas
-        focus_areas = gpd.read_file(focus_fp)
-        focus_areas = focus_areas.drop(columns=[c for c in focus_areas.columns if c != "geometry"])
-        if focus_areas.crs is None:
-            focus_areas = focus_areas.set_crs(areas.crs)
-        if focus_areas.crs != areas.crs:
-            focus_areas = focus_areas.to_crs(areas.crs)
-
-        # Spatial join: link each focus polygon to the training area(s) it overlaps
-        focus_areas = gpd.sjoin(focus_areas, areas, op="intersects", how="inner")
-
-        # Pre-group focus geometries by area for fast lookup in the chip loop
+        # Skipped when config.focus_areas is None (no focus-area file available).
         focus_by_area = {}
-        for _rid, _row in focus_areas.iterrows():
-            _aid = int(_row["index_right"])
-            _geom = _row.geometry
-            if _geom is None or _geom.is_empty:
-                continue
-            focus_by_area.setdefault(_aid, []).append(_geom)
+        if getattr(config, "focus_areas", None) is not None:
+            focus_fp = os.path.join(config.training_data_dir, config.focus_areas)
+            if not os.path.exists(focus_fp):
+                raise FileNotFoundError(f"Focus areas file not found: {focus_fp}")
+
+            # Load and align focus area polygons to the same CRS as training areas
+            focus_areas = gpd.read_file(focus_fp)
+            focus_areas = focus_areas.drop(columns=[c for c in focus_areas.columns if c != "geometry"])
+            if focus_areas.crs is None:
+                focus_areas = focus_areas.set_crs(areas.crs)
+            if focus_areas.crs != areas.crs:
+                focus_areas = focus_areas.to_crs(areas.crs)
+
+            # Spatial join: link each focus polygon to the training area(s) it overlaps
+            focus_areas = gpd.sjoin(focus_areas, areas, op="intersects", how="inner")
+
+            # Pre-group focus geometries by area for fast lookup in the chip loop
+            for _rid, _row in focus_areas.iterrows():
+                _aid = int(_row["index_right"])
+                _geom = _row.geometry
+                if _geom is None or _geom.is_empty:
+                    continue
+                focus_by_area.setdefault(_aid, []).append(_geom)
 
         for area_id in tqdm(written_area_stems, desc="Building chips (no-overlap CC)", position=0):
             # Keep original guard (but we no longer use src_im; we crop from the area raster)

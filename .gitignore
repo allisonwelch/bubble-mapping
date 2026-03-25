@@ -14,3 +14,5 @@ venv-bubble/
 # Ignore compiled Python files
 *.pyc
 
+#Ignore data
+data/
