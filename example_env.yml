@@ -22,3 +22,4 @@ dependencies:
   - albumentations       # Image augmentation library
   - notebook             # Jupyter Notebook server
   - ipykernel            # Jupyter kernel support
+  - resource

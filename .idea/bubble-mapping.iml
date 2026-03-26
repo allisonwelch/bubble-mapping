@@ -7,7 +7,7 @@
       <excludeFolder url="file://$MODULE_DIR$/venv-bubble/Lib" />
       <excludeFolder url="file://$MODULE_DIR$/venv-bubble/Scripts" />
     </content>
-    <orderEntry type="jdk" jdkName="Python 3.13" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Python 3.13 (bubble-mapping)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
   <component name="PyDocumentationSettings">

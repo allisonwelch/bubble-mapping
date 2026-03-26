@@ -301,10 +301,12 @@ class Configuration:
 
         # Monte Carlo Dropout: evaluate model with dropout enabled to estimate prediction uncertainty
         # Useful to know which predictions the model is unsure about
-        self.eval_mc_dropout = True
+        # NOTE: set False for smoke-tests — MC dropout runs 8+ forward passes per patch (very slow)
+        self.eval_mc_dropout = False  # Windows smoke-test (main uses True)
         # Number of forward passes with different dropout masks to average predictions
         # More samples = better uncertainty estimate but slower; 20 is reasonable
-        self.mc_dropout_samples = 20
+        # NOTE: eval code reads "eval_mc_samples" not "mc_dropout_samples" — fix the name
+        self.eval_mc_samples = 8  # used by evaluation.py; mc_dropout_samples is a dead alias
 
         # ------ MIXED PRECISION / COMPILE / REPRO ------
         # PyTorch compilation: converts model to optimized machine code for faster inference

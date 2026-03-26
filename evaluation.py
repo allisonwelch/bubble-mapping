@@ -597,7 +597,7 @@ def _load_model_from_checkpoint(
     model = model.to(device=device).eval()
 
     # Load checkpoint file (could be raw state dict or wrapped in a dict with "model_state" key)
-    state = torch.load(ckpt_path, map_location="cpu")  # Load to CPU first (memory efficient)
+    state = torch.load(ckpt_path, map_location="cpu", weights_only=False)  # Load to CPU first (memory efficient)
 
     # Extract state dict (the actual weights) from checkpoint
     if isinstance(state, dict) and "model_state" in state:
