@@ -67,10 +67,10 @@ def get_areas_and_polygons():
 
     # Spatial join: For each polygon, find which training area(s) it overlaps.
     # sjoin = spatial join (a GIS operation that matches geometries by location).
-    # op="intersects" means: keep polygon-area pairs that touch or overlap.
+    # predicate="intersects" means: keep polygon-area pairs that touch or overlap.
     # how="inner" means: only keep polygons that intersect an area (drop orphaned ones).
     # Result: a new column "index_right" added to polygons, containing the area's ID.
-    polygons = gpd.sjoin(polygons, areas, op="intersects", how="inner")
+    polygons = gpd.sjoin(polygons, areas, predicate="intersects", how="inner")
 
     print(f"Done in {time.time()-start:.2f} seconds.")
     return areas, polygons
@@ -868,14 +868,13 @@ def preprocess_all(conf):
 
     # Create a unique timestamp for this preprocessing run (e.g., "20260312-1430_AE_run1")
     # This prevents different runs from overwriting each other's outputs
-    run_stamp = time.strftime("%Y%m%d-%H%M") + "_" + config.run_name
-
     # Output directory for the large rasterized training-area GeoTIFFs
-    output_dir = os.path.join(config.preprocessed_base_dir, run_stamp)
+    # Use config.preprocessed_dir directly so training can find the output without manual path updates
+    output_dir = config.preprocessed_dir
     _ensure_dir(output_dir)
 
     # Output directory for the smaller chips (sub-tiles of the training areas)
-    chips_dir = os.path.join(config.training_data_base_dir, run_stamp)
+    chips_dir = os.path.join(config.training_data_base_dir, os.path.basename(config.preprocessed_dir))
     _ensure_dir(chips_dir)
 
     # STEP 1: Load the hand-drawn training areas and bubble polygon labels
@@ -1166,7 +1165,7 @@ def preprocess_all(conf):
                 focus_areas = focus_areas.to_crs(areas.crs)
 
             # Spatial join: link each focus polygon to the training area(s) it overlaps
-            focus_areas = gpd.sjoin(focus_areas, areas, op="intersects", how="inner")
+            focus_areas = gpd.sjoin(focus_areas, areas, predicate="intersects", how="inner")
 
             # Pre-group focus geometries by area for fast lookup in the chip loop
             for _rid, _row in focus_areas.iterrows():

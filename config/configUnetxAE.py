@@ -37,7 +37,7 @@ class Configuration:
             f"{REPO_PATH}/data/training/{self.modality}"
         )
         self.training_area_fn = "training_areas.gpkg"  # Geopackage defining where training data exists
-        self.training_polygon_fn = f"labels_{self.modality}.gpkg"  # The actual labeled polygons (bubbles, non-bubbles) for training
+        self.training_polygon_fn = f"labels_full_dataset_{self.modality}.gpkg"  # The actual labeled polygons (bubbles, non-bubbles) for training
         # Set to a filename (e.g. f"focus_areas_{self.modality}.gpkg") if you have a focus-areas
         # geopackage; leave as None to skip focus-area chip generation entirely.
         self.focus_areas = None  # Regions of special interest (optional)

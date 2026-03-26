@@ -94,8 +94,7 @@ def alb_augmentation(
             #   ratio: aspect ratio. (0.9, 1.1) means keep it near-square (allow 10% deviation).
             #   p: probability of applying this transform.
             A.RandomResizedCrop(
-                height=h,
-                width=w,
+                size=(h, w),
                 scale=(max(0.0, 1.0 - 0.10 * s), 1.0),
                 ratio=(0.9, 1.1),
                 p=0.5 * s,

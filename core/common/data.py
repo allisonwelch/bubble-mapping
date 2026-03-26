@@ -85,7 +85,7 @@ def get_all_frames(conf: Optional[Any] = None):
     # Files are numbered and sorted by integer stem, e.g., 69.tif
     image_paths = sorted(
         glob.glob(f"{config.preprocessed_dir}/*.tif"),
-        key=lambda f: int(f.split("/")[-1][:-4]),
+        key=lambda f: int(os.path.splitext(os.path.basename(f))[0]),
     )
 
     print(
@@ -109,7 +109,12 @@ def get_all_frames(conf: Optional[Any] = None):
 
 class TorchGeneratorDataset(IterableDataset):
     """
-    Wrap a python generator of (x, y) batches and convert to NCHW tensors.
+    Wrap a DatasetGenerator and convert its batches to NCHW tensors.
+
+    Stores the generator *factory* (gen_obj + batch_size) rather than a pre-built
+    Python generator, so the dataset can be pickled by DataLoader worker processes
+    on Windows (which uses the 'spawn' multiprocessing start method).
+    Each worker calls random_generator() independently after being spawned.
 
     Notes:
         - x arrives as NHWC, y as NHW or NHWC1. Output is always NCHW for both.
@@ -117,12 +122,13 @@ class TorchGeneratorDataset(IterableDataset):
         - No shuffling here; it happens in the underlying generator.
     """
 
-    def __init__(self, py_generator: Iterable[Tuple[np.ndarray, np.ndarray]]):
+    def __init__(self, gen_obj, batch_size: int):
         super().__init__()
-        self.py_generator = py_generator
+        self.gen_obj = gen_obj
+        self.batch_size = batch_size
 
     def __iter__(self) -> Iterator[Tuple[torch.Tensor, torch.Tensor]]:
-        for x, y in self.py_generator:
+        for x, y in self.gen_obj.random_generator(self.batch_size):
             # x: (N, H, W, C) -> (N, C, H, W)
             if isinstance(x, np.ndarray):
                 x_t = torch.from_numpy(np.transpose(x, (0, 3, 1, 2))).to(
@@ -369,16 +375,12 @@ def create_train_val_datasets(frames):
         audit_sampler(val_gen_obj, "val", batches=max(50, audit_batches // 2), batch_size=audit_bs)
         audit_sampler(test_gen_obj, "test", batches=max(50, audit_batches // 2), batch_size=audit_bs)
 
-    # Convert to infinite python generators
-    train_gen = train_gen_obj.random_generator(config.train_batch_size)
-    val_gen = val_gen_obj.random_generator(config.train_batch_size)
-    test_gen = test_gen_obj.random_generator(config.train_batch_size)
-
-    # Wrap with DataLoader-like iterables
+    # Wrap with DataLoader-compatible datasets.
+    # Pass gen_obj + batch_size (not a pre-built generator) so workers can be pickled on Windows.
     workers = int(getattr(config, "fit_workers", 8))
-    train_ds = TorchGeneratorDataset(train_gen)
-    val_ds = TorchGeneratorDataset(val_gen)
-    test_ds = TorchGeneratorDataset(test_gen)
+    train_ds = TorchGeneratorDataset(train_gen_obj, config.train_batch_size)
+    val_ds = TorchGeneratorDataset(val_gen_obj, config.train_batch_size)
+    test_ds = TorchGeneratorDataset(test_gen_obj, config.train_batch_size)
 
     base_kwargs = dict(
         batch_size=None,

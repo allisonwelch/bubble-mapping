@@ -8,8 +8,11 @@ logs consistent and easy to scan.
 """
 
 import sys
-import resource
+import platform
 from osgeo import gdal
+
+if platform.system() != "Windows":
+    import resource
 
 
 def gdal_progress_callback(complete, message, data):
@@ -93,7 +96,7 @@ def raster_copy(
         translate_options = dict(
             bandList=bands,
             outputSRS=out_crs,
-            projWin=[bounds[0], bounds[3], bounds[2], bounds[1]] if bounds is not None else None,
+            projWin=[bounds.iloc[0], bounds.iloc[3], bounds.iloc[2], bounds.iloc[1]] if bounds is not None else None,
             projWinSRS=bounds_crs,
         )
         return gdal.Translate(output_fp, input_fp, **base_options, **translate_options)

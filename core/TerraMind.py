@@ -28,9 +28,6 @@ try:
 except Exception:
     pass
 
-from terratorch.models.encoder_decoder_factory import EncoderDecoderFactory
-
-
 def _tm_indices_for_size(size: str):
     """
     Recommended transformer layer taps for hierarchical decoders.
@@ -119,6 +116,7 @@ class TerraMind(nn.Module):
         ]
 
         # Build encoder+decoder model
+        from terratorch.models.encoder_decoder_factory import EncoderDecoderFactory  # lazy: only needed if TerraMind is actually used
         factory = EncoderDecoderFactory()
         extra = dict(decoder_kwargs or {})
         # always pass decoder_channels if provided
