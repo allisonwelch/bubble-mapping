@@ -205,16 +205,16 @@ class Configuration:
         # Larger batches = more stable gradients but require more GPU memory
         # Smaller batches = noisier training but work on limited memory
         # 32 is a common compromise
-        self.train_batch_size = 32
+        self.train_batch_size = 8  # Windows smoke-test (main uses 32)
 
         # Total number of training epochs (full passes through the training set)
         # 100 is typical; too few = underfitting, too many = overfitting (but early stopping can help)
-        self.num_epochs = 100
+        self.num_epochs = 10  # Windows smoke-test (main uses 100)
 
         # Number of optimization steps per epoch
         # 500 steps with batch_size=32 means processing ~16,000 patches per epoch
         # Controls how many batches are shown before validation
-        self.num_training_steps = 500
+        self.num_training_steps = 50  # Windows smoke-test (main uses 500)
 
         # How many validation patches to evaluate on during training
         # Validation provides feedback on generalization without overfitting to training data
@@ -274,7 +274,9 @@ class Configuration:
         # Number of CPU workers for loading data in parallel during training
         # Higher = faster data loading but uses more CPU
         # 8 is typical for multi-core machines; reduce if you have CPU issues
-        self.fit_workers = 8
+        # Windows: must be 0 — spawn multiprocessing cannot pickle large numpy arrays via IPC pipe
+        # On Linux/HPC use 8 (fork-based workers inherit memory without pickling)
+        self.fit_workers = 0
 
         # How many batches to accumulate before updating weights
         # steps_per_execution = 1 means update after every batch
@@ -291,7 +293,7 @@ class Configuration:
 
         # Detailed evaluation is expensive; do it every N steps during validation
         # heavy_eval_steps = 50 means compute F1, precision, recall every 50 validation steps
-        self.heavy_eval_steps = 50
+        self.heavy_eval_steps = 10  # Windows smoke-test (main uses 50)
 
         # Print statistics specifically about the positive class (bubbles)
         # Useful for imbalanced datasets where you care more about one class
