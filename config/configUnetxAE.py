@@ -56,7 +56,6 @@ class Configuration:
         # Alternative base directory for processed training data
         self.training_data_base_dir = (
             f"{REPO_PATH}/data/training_data/"
-            f"2026-04-17_UNETxAE"
         )
         # The specific folder where preprocessed patches will be saved for THIS experiment
         # Update the timestamp to run a new preprocessing
