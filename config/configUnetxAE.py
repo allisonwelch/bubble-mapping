@@ -7,7 +7,7 @@ import warnings
 import numpy as np
 from osgeo import gdal  # GDAL is used for reading/writing geospatial raster data (satellite imagery)
 
-REPO_PATH = r"C:\Users\amwelch3\git_repos\bubble-mapping"
+REPO_PATH = os.path.expanduser("~/bubble-mapping")
 
 
 class Configuration:
@@ -56,12 +56,13 @@ class Configuration:
         # Alternative base directory for processed training data
         self.training_data_base_dir = (
             f"{REPO_PATH}/data/training_data/"
+            f"2026-04-17_UNETxAE"
         )
         # The specific folder where preprocessed patches will be saved for THIS experiment
         # Update the timestamp to run a new preprocessing
         self.preprocessed_dir = (
             f"{REPO_PATH}/data/preprocessed/"
-            f"2026-03-26_UNETxAE"
+            f"2026-04-17_UNETxAE"
         )
 
 
@@ -359,12 +360,12 @@ class Configuration:
         # Which GPU to use for training
         # 7 = GPU #7 (useful if you have multiple GPUs and want to avoid conflicts with other jobs)
         # -1 = use CPU (much slower but useful for debugging)
-        self.selected_GPU = 1
+        self.selected_GPU = 0
 
         # GDAL configuration for geospatial data handling
         gdal.UseExceptions()  # Make GDAL report errors as exceptions instead of silently failing
         gdal.SetCacheMax(32000000000)  # Cache size for GDAL operations (32 GB)
-        gdal.SetConfigOption("CPL_LOG", "NUL")  # Suppress GDAL log messages
+        gdal.SetConfigOption("CPL_LOG", "/dev/null")  # Suppress GDAL log messages
         # Suppress Python warnings to reduce clutter in training output
         warnings.filterwarnings("ignore")
 

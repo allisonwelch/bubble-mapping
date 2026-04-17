@@ -22,6 +22,8 @@ from core.util import raster_copy
 # Reuse the same split logic as training (these functions handle train/val/test splitting)
 from core.split_frames import split_dataset, summarize_positive_rates
 
+from config.configUnetxAE import *
+
 
 def get_areas_and_polygons():
     """Read training rectangles and polygon shapefiles and pre-index polygons.

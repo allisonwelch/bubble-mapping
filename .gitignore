@@ -7,6 +7,7 @@
 # Ignore Claude
 CLAUDE.md
 pipeline_guide.md
+.claude/
 # Ignore virtual environment folders
 venv-bubble/
 .venv/

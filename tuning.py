@@ -38,6 +38,7 @@ from core.common.console import print_search_space
 from core.optimizers import get_optimizer  # project-level optimizer factory
 from core.losses import tversky as _tversky  # Tversky loss (alpha+beta=1, alpha tuned)
 
+from config.configUnetxAE import *
 
 # -----------------------
 # Utilities
