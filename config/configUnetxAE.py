@@ -75,7 +75,7 @@ class Configuration:
         # Training logs (loss curves, validation metrics) go here for later visualization
         self.logs_dir = f"{REPO_PATH}/data/logs/UNET/{self.modality}"
         # Final predictions on test set go here
-        self.results_dir = f"{REPO_PATH}data/results/UNET/{self.modality}"
+        self.results_dir = f"{REPO_PATH}/data/results/UNET/{self.modality}"
 
         # -------- IMAGE / CHANNELS --------
         # Satellite imagery is stored in GeoTIFF format (.tif), a standard format for geo-referenced raster data

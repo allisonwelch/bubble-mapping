@@ -1,24 +1,26 @@
-name: nudel  # can change this to any name
+name: bubble-mapping
 channels:
-  - conda-forge
+  - pytorch
   - nvidia
+  - conda-forge
 dependencies:
-  - python=3.8.6
+  - python=3.11
+  - pytorch>=2.10
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=12.1
   - gdal
   - rasterio
   - geopandas
-  - matplotlib
   - scikit-learn
-  - imgaug
+  - matplotlib
+  - tensorboard
   - tqdm
-  # --- Added 2026-03-13 (venv-bubble installs) ---
-  - pytorch>=2.10        # Deep learning framework (CUDA build via pip: torch --index-url https://download.pytorch.org/whl/cu128)
-  - torchvision          # PyTorch vision utilities
-  - torchaudio           # PyTorch audio utilities
-  - tensorboard          # Training visualization (TensorBoard)
-  - anyio                # Async I/O library (used in mainUnet)
-  - h5py                 # HDF5 file I/O
-  - optuna               # Hyperparameter tuning (Bayesian optimization)
-  - albumentations       # Image augmentation library
-  - notebook             # Jupyter Notebook server
-  - ipykernel            # Jupyter kernel support
+  - albumentations
+  - optuna
+  - h5py
+  - notebook
+  - ipykernel
+  - anyio
+  - pip:
+    - imgaug
