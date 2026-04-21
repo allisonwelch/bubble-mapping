@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --partition=debug
-#SBATCH --ntasks=24
-#SBATCH --tasks-per-node=24
-#SBATCH --mem=214G
+#SBATCH --ntasks=1
+#SBATCH --mem=1G
+#SBATCH --time=00:05:00
 
 module purge
 module load slurm
