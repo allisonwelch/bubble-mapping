@@ -3,9 +3,9 @@
 #SBATCH --partition=h100
 #SBATCH --time=24:00:00
 #SBATCH --gpus=1
-#SBATCH --mem-per-gpu=185G
+#SBATCH --mem=120G
 #SBATCH --cpus-per-gpu=6
-#SBATCH --output=logs/train_%j.out
+#SBATCH --output=/home/amwelch3/bubble-mapping/logs/train_%j.out
 #SBATCH --mail-user=amwelch3@alaska.edu
 #SBATCH --mail-type=BEGIN,END,FAIL
 
