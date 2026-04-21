@@ -209,12 +209,12 @@ class Configuration:
 
         # Total number of training epochs (full passes through the training set)
         # 100 is typical; too few = underfitting, too many = overfitting (but early stopping can help)
-        self.num_epochs = 100
+        self.num_epochs = 2
 
         # Number of optimization steps per epoch
         # 500 steps with batch_size=32 means processing ~16,000 patches per epoch
         # Controls how many batches are shown before validation
-        self.num_training_steps = 500
+        self.num_training_steps = 10
 
         # How many validation patches to evaluate on during training
         # Validation provides feedback on generalization without overfitting to training data
