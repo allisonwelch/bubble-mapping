@@ -34,7 +34,7 @@ class Configuration:
         # These folders contain the raw satellite imagery and ground truth labels (training labels are called "geopackages" or .gpkg files)
         # geopackages are expected to be inside training_data_dir
         self.training_data_dir = (
-            f"{REPO_PATH}/data/training/{self.modality}"
+            f"{REPO_PATH}/data/training/{self.modality}/2026-04-16_UNETxAE"
         )
         self.training_area_fn = "training_areas.gpkg"  # Geopackage defining where training data exists
         self.training_polygon_fn = f"labels_full_dataset_{self.modality}.gpkg"  # The actual labeled polygons (bubbles, non-bubbles) for training
