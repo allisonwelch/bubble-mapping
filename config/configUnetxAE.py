@@ -149,15 +149,16 @@ class Configuration:
 
         # Tversky loss is a variant of the Dice loss, a common loss function for segmentation
         # Alpha and beta control how much the model penalizes different types of errors:
-        # - Alpha = 0.55: penalty for false negatives (missing bubbles) - higher = care more about finding all bubbles
-        # - Beta = 0.45: penalty for false positives (predicting bubbles where there are none) - higher = care more about precision
+        # - Alpha = 0.3: penalty for false positives (predicting bubbles where there are none) - higher = care more about precision
+        # - Beta = 0.7: penalty for false negatives (missing bubbles) - higher = care more about finding all bubbles
         # 0.55/0.45 means you care slightly more about not missing bubbles than about false alarms
-        self.tversky_alphabeta = (0.55, 0.45)
+        self.tversky_alphabeta = (0.3, 0.7)
 
         # Dilation rate controls how large a receptive field each neuron sees
         # dilation_rate=2 means skip every other pixel when applying convolution filters
         # Larger dilation = sees bigger spatial context but is faster; smaller = sees fine details but slower
-        self.dilation_rate = 2
+        # changed to 1
+        self.dilation_rate = 1
 
         # Dropout is a regularization technique: randomly "turn off" neurons during training
         # This prevents the model from memorizing and forces it to learn robust features
@@ -219,7 +220,8 @@ class Configuration:
         # How many validation patches to evaluate on during training
         # Validation provides feedback on generalization without overfitting to training data
         # More samples = more reliable validation but slower per epoch
-        self.num_validation_images = 50
+        # changed to 500
+        self.num_validation_images = 500
 
         # ------ EMA (Exponential Moving Average) ------
         # EMA keeps a smoothed copy of the model weights that often generalizes better
@@ -261,7 +263,8 @@ class Configuration:
         # Minimum fraction of positive class (bubble) pixels in a patch for it to be used for training
         # min_pos_frac = 0.001 means patches with at least 0.1% bubble pixels are included
         # If bubbles are very rare, set this lower; if common, set higher to balance classes
-        self.min_pos_frac = 0.001
+        # Increased to 0.01
+        self.min_pos_frac = 0.01
 
         # Alternatively, specify desired ratio of positive to negative patches (e.g., 0.5 = 50/50 balance)
         # Set to None to use min_pos_frac instead
@@ -302,7 +305,8 @@ class Configuration:
         self.eval_mc_dropout = True
         # Number of forward passes with different dropout masks to average predictions
         # More samples = better uncertainty estimate but slower; 20 is reasonable
-        self.mc_dropout_samples = 20
+        # Changed from mc_dropout_samples to eval_mc_samples
+        self.eval_mc_samples = 20
 
         # ------ MIXED PRECISION / COMPILE / REPRO ------
         # PyTorch compilation: converts model to optimized machine code for faster inference
@@ -317,7 +321,8 @@ class Configuration:
         # Gradient clipping: if gradients exceed this norm, scale them down
         # Prevents "exploding gradients" which cause training to diverge
         # 0.0 = disabled; typical values are 1.0 to 10.0 if you have gradient issues
-        self.clip_norm = 0.0
+        # Changed to 1.0
+        self.clip_norm = 1.0
 
         # --- POSTPROCESSING (kept for downstream scripts) ----
         # After the model predicts pixels, convert them to polygons (vector geometries)

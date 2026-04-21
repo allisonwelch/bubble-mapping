@@ -181,7 +181,7 @@ class FrameInfo:
         # If enabled, it would normalize each small patch independently.
         # The alternative is to normalize once at the dataset level (compute stats
         # from the entire frame or full training set, then apply consistently).
-        #img_patch = image_normalize(img_patch, axis=(0, 1), nodata_val=0)
+        img_patch = image_normalize(img_patch, axis=(0, 1), nodata_val=0)
 
         # Extract the corresponding label patch.
         # Shape: (h_slice, w_slice) or (h_slice, w_slice, 1)

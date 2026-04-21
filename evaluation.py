@@ -789,7 +789,7 @@ def _infer_full_image(
 
     # Optional normalization (disabled here to match training behavior)
     # Normalization: Subtract mean, divide by std, to center data around 0 with scale ~1
-    # x_padded = image_normalize(x_padded, axis=(0, 1))
+    x_padded = image_normalize(x_padded, axis=(0, 1))
 
     # ===== Prediction blending accumulators =====
     # These accumulate predictions from overlapping patches, weighted by overlap count
