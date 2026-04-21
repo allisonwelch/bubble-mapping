@@ -2038,3 +2038,7 @@ def train_TerraMind(conf):
             _C.GREEN,
         )
     )
+
+if __name__ == "__main__":
+    config = Configuration().validate()
+    train_UNet(config)

@@ -1496,3 +1496,8 @@ def evaluate_TerraMind(conf) -> None:
     global config
     config = conf
     _evaluate_arch(config, arch="tm")
+
+
+if __name__ == "__main__":
+    config = Configuration().validate()
+    evaluate_unet(config)
