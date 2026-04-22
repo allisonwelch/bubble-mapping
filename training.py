@@ -1068,6 +1068,14 @@ def _fit_model(
     # Track best validation loss for early stopping & checkpointing
     best_val_loss = float("inf")
 
+    # ===== Early Stopping State =====
+    es_patience = int(getattr(config, "early_stopping_patience", 0))
+    es_metric = str(getattr(config, "early_stopping_metric", "val_dice_coef"))
+    es_mode = str(getattr(config, "early_stopping_mode", "max")).lower()
+    es_min_delta = float(getattr(config, "early_stopping_min_delta", 0.0))
+    es_best = float("-inf") if es_mode == "max" else float("inf")
+    es_wait = 0
+
     # ===== TerraMind Backbone Freeze Schedule =====
     # Some configs freeze backbone for first N epochs, then unfreeze to fine-tune.
     # Useful when: limited data, want stable training.
@@ -1684,6 +1692,36 @@ def _fit_model(
                 print("  train: " + _format_all(train_logs))
             if val_logs:
                 print("   val: " + _format_all(val_logs))
+
+        # ===== Early Stopping Check =====
+        # Stop if monitored metric hasn't improved by min_delta for `patience` epochs.
+        # best_saver still holds the best checkpoint regardless of when we stop.
+        if es_patience > 0:
+            es_current = logs.get(es_metric)
+            if es_current is None:
+                if epoch == starting_epoch:
+                    print(_col(
+                        f"[early-stop] WARNING: metric '{es_metric}' not found in logs; "
+                        f"early stopping disabled for this run.",
+                        _C.YELLOW,
+                    ))
+            else:
+                if es_mode == "max":
+                    es_improved = (float(es_current) - es_best) > es_min_delta
+                else:
+                    es_improved = (es_best - float(es_current)) > es_min_delta
+                if es_improved:
+                    es_best = float(es_current)
+                    es_wait = 0
+                else:
+                    es_wait += 1
+                    if es_wait >= es_patience:
+                        print(_col(
+                            f"[early-stop] {es_metric} did not improve for {es_patience} "
+                            f"epochs (best={es_best:.4f}). Stopping at epoch {epoch+1}/{total_epochs}.",
+                            _C.GREEN,
+                        ))
+                        break
 
     # End of training: export full model once
     final_export_path = f"{model_path}.pt"
