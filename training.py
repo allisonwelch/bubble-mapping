@@ -1582,10 +1582,17 @@ def _fit_model(
         # ===== Save Checkpoint if Best Validation Loss =====
         # Best model saver: only keep weights with lowest validation loss
         # Prevents overfitting: model at epoch 20 may be better than final epoch 50
-        best_improved = best_saver.maybe_save(
-            ema.ema_model if eval_with_ema and ema is not None else model,
-            avg_val_loss,
-        )
+
+        #AttributeError: ModelEMA has no attribute ema_model
+        # best_improved = best_saver.maybe_save(
+        #     ema.ema_model if eval_with_ema and ema is not None else model,
+        #     avg_val_loss,
+        # )
+        if eval_with_ema and ema is not None:
+            with ema.use_ema_weights(model):
+                best_improved = best_saver.maybe_save(model, avg_val_loss)
+        else:
+            best_improved = best_saver.maybe_save(model, avg_val_loss)
         logs["best_val_loss"] = best_saver.best_val
 
         # ===== Per-Epoch Metadata =====
