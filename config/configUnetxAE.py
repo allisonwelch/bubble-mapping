@@ -37,7 +37,7 @@ class Configuration:
             f"{REPO_PATH}/data/training/{self.modality}/2026-04-16_UNETxAE"
         )
         self.training_area_fn = "training_areas.gpkg"  # Geopackage defining where training data exists
-        self.training_polygon_fn = f"labels_certain_dataset_{self.modality}.gpkg"  # The actual labeled polygons (bubbles, non-bubbles) for training
+        self.training_polygon_fn = f"labels_full_dataset_{self.modality}.gpkg"  # The actual labeled polygons (bubbles, non-bubbles) for training
         # Set to a filename (e.g. f"focus_areas_{self.modality}.gpkg") if you have a focus-areas
         # geopackage; leave as None to skip focus-area chip generation entirely.
         self.focus_areas = None  # Regions of special interest (optional)
@@ -150,8 +150,8 @@ class Configuration:
 
         # Tversky loss is a variant of the Dice loss, a common loss function for segmentation
         # Alpha and beta control how much the model penalizes different types of errors:
-        # - Alpha = 0.3: penalty for false positives (predicting bubbles where there are none) - higher = care more about precision
-        # - Beta = 0.7: penalty for false negatives (missing bubbles) - higher = care more about finding all bubbles
+        # - changed Alpha = 0.3: penalty for false positives (predicting bubbles where there are none) - higher = care more about precision
+        # - changed Beta = 0.7: penalty for false negatives (missing bubbles) - higher = care more about finding all bubbles
         # 0.55/0.45 means you care slightly more about not missing bubbles than about false alarms
         self.tversky_alphabeta = (0.3, 0.7)
 
@@ -240,7 +240,7 @@ class Configuration:
         self.early_stopping_mode = "max"
         # Minimum improvement (absolute) to count as progress; prevents tiny fluctuations from
         # resetting the patience counter. 0.001 = require ≥0.001 Dice improvement.
-        self.early_stopping_min_delta = 0.01
+        self.early_stopping_min_delta = 0.001
 
         # ------ EMA (Exponential Moving Average) ------
         # EMA keeps a smoothed copy of the model weights that often generalizes better
