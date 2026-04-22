@@ -61,7 +61,7 @@ class Configuration:
         # Update the timestamp to run a new preprocessing
         self.preprocessed_dir = (
             f"{REPO_PATH}/data/preprocessed/"
-            f"2026-04-17_UNETxAE"
+            f"2026-04-21_UNETxAE"
         )
 
 
