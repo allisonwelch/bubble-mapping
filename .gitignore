@@ -17,3 +17,6 @@ venv-bubble/
 
 #Ignore data
 data/
+
+#Ignore figs
+figs/
