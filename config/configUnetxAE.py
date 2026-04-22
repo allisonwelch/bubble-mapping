@@ -37,7 +37,7 @@ class Configuration:
             f"{REPO_PATH}/data/training/{self.modality}/2026-04-16_UNETxAE"
         )
         self.training_area_fn = "training_areas.gpkg"  # Geopackage defining where training data exists
-        self.training_polygon_fn = f"labels_full_dataset_{self.modality}.gpkg"  # The actual labeled polygons (bubbles, non-bubbles) for training
+        self.training_polygon_fn = f"labels_certain_dataset_{self.modality}.gpkg"  # The actual labeled polygons (bubbles, non-bubbles) for training
         # Set to a filename (e.g. f"focus_areas_{self.modality}.gpkg") if you have a focus-areas
         # geopackage; leave as None to skip focus-area chip generation entirely.
         self.focus_areas = None  # Regions of special interest (optional)
@@ -142,10 +142,11 @@ class Configuration:
         # Larger patches capture more context but use more memory and training time
         # Smaller patches are faster but miss larger spatial patterns
         # 256x256 is a good balance for typical geospatial tasks
-        self.patch_size = (256, 256)
+        # Changed to 128, 128 for low quantity, densely labeled training areas
+        self.patch_size = (128, 128)
         # These are redundant with patch_size above, but kept for compatibility
-        self.tune_patch_h = 256
-        self.tune_patch_w = 256
+        self.tune_patch_h = 128
+        self.tune_patch_w = 128
 
         # Tversky loss is a variant of the Dice loss, a common loss function for segmentation
         # Alpha and beta control how much the model penalizes different types of errors:
@@ -164,12 +165,14 @@ class Configuration:
         # This prevents the model from memorizing and forces it to learn robust features
         # Higher dropout = more regularization = simpler model, less overfitting, but may underfit
         # 0.1 (10% dropout) is mild regularization, good for well-sized datasets
-        self.dropout = 0.1
+        #changed to 0.3 to combat overfitting
+        self.dropout = 0.3
 
         # These are UNet architecture hyperparameters tuned for this specific task
         # layer_count = 96: number of convolutional filters/features the model learns (controls model capacity)
         # Higher = more expressive model but more parameters and slower; lower = simpler model, faster
-        self.layer_count = 96
+        # changed to 64 to stay compatible with smaller patch size
+        self.layer_count = 64
 
         # L2 regularization (weight decay): adds a penalty based on how large the weights are
         # Encourages smaller weights = simpler model = less overfitting
@@ -206,7 +209,8 @@ class Configuration:
         # Larger batches = more stable gradients but require more GPU memory
         # Smaller batches = noisier training but work on limited memory
         # 32 is a common compromise
-        self.train_batch_size = 32
+        # changed to 64 for small training areas, dense labels
+        self.train_batch_size = 64
 
         # Total number of training epochs (full passes through the training set)
         # 100 is typical; too few = underfitting, too many = overfitting (but early stopping can help)
@@ -222,6 +226,21 @@ class Configuration:
         # More samples = more reliable validation but slower per epoch
         # changed to 500
         self.num_validation_images = 500
+
+        # ------ EARLY STOPPING ------
+        # Stop training if a monitored metric stops improving for `patience` epochs.
+        # Saves compute and auto-picks the best checkpoint (best_saver still runs).
+        # Set patience=0 to disable.
+        self.early_stopping_patience = 15
+        # Which key in the per-epoch logs dict to monitor.
+        # "val_dice_coef" (higher=better) is the most informative for sparse segmentation.
+        # Use "val_loss" (lower=better) as a safer fallback.
+        self.early_stopping_metric = "val_dice_coef"
+        # "max" if higher metric is better (Dice, F1, IoU), "min" if lower is better (loss).
+        self.early_stopping_mode = "max"
+        # Minimum improvement (absolute) to count as progress; prevents tiny fluctuations from
+        # resetting the patience counter. 0.001 = require ≥0.001 Dice improvement.
+        self.early_stopping_min_delta = 0.01
 
         # ------ EMA (Exponential Moving Average) ------
         # EMA keeps a smoothed copy of the model weights that often generalizes better
