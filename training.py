@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, Iterator, Optional, Tuple, List
 
-from config.configUnetxAE import *
+from config.configSwinUnet import *
 
 # h5py: for backwards compatibility with old TensorFlow model checkpoints (likely not in use)
 try:
@@ -2079,4 +2079,4 @@ def train_TerraMind(conf):
 
 if __name__ == "__main__":
     config = Configuration().validate()
-    train_UNet(config)
+    train_SwinUNetPP(config)
