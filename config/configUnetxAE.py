@@ -37,7 +37,7 @@ class Configuration:
             f"{REPO_PATH}/data/training/{self.modality}/2026-04-16_UNETxAE"
         )
         self.training_area_fn = "training_areas.gpkg"  # Geopackage defining where training data exists
-        self.training_polygon_fn = f"labels_full_dataset_{self.modality}.gpkg"  # The actual labeled polygons (bubbles, non-bubbles) for training
+        self.training_polygon_fn = f"labels_certain_dataset_{self.modality}.gpkg"  # The actual labeled polygons (bubbles, non-bubbles) for training
         # Set to a filename (e.g. f"focus_areas_{self.modality}.gpkg") if you have a focus-areas
         # geopackage; leave as None to skip focus-area chip generation entirely.
         self.focus_areas = None  # Regions of special interest (optional)
@@ -61,7 +61,7 @@ class Configuration:
         # Update the timestamp to run a new preprocessing
         self.preprocessed_dir = (
             f"{REPO_PATH}/data/preprocessed/"
-            f"2026-04-17_UNETxAE"
+            f"2026-04-21_UNETxAE"
         )
 
 
