@@ -99,8 +99,8 @@ class Configuration:
         self.scheduler = "onecycle"      # NEW: tuned "scheduler" ("none"|"cosine"|"onecycle")
 
         self.train_batch_size = 8
-        self.num_epochs = 2
-        self.num_training_steps = 10
+        self.num_epochs = 100
+        self.num_training_steps = 500
         #change num_validation_images from 50 to 500 to address undersampling in low quantity training areas
         self.num_validation_images = 500
 
