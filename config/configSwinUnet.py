@@ -38,6 +38,12 @@ class Configuration:
         self.preprocessed_base_dir = (
             f"{REPO_PATH}/data/preprocessed/"
         )
+
+        # Alternative base directory for processed training data
+        self.training_data_base_dir = (
+            f"{REPO_PATH}/data/training_data/"
+        )
+
         self.preprocessed_dir = (
             f"{REPO_PATH}/data/preprocessed/"
             f"2026-04-22_SWINxAE"
