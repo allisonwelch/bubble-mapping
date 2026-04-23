@@ -20,3 +20,10 @@ data/
 
 #Ignore figs
 figs/
+
+#Ignore R files
+.Rprofile
+renv/
+renv.lock
+.RData
+.Rhistory

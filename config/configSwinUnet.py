@@ -26,8 +26,8 @@ class Configuration:
         self.training_data_dir = (
             f"{REPO_PATH}/data/training/{self.modality}/2026-04-16_UNETxAE"
         )
-        self.training_area_fn = "training_areas.gpkg"
-        self.training_polygon_fn = f"labels_certain_dataset_{self.modality}.gpkg"
+        self.training_area_fn = "training_areas_no_toolik.gpkg"
+        self.training_polygon_fn = f"labels_full_dataset_no_toolik_{self.modality}.gpkg"
         self.training_image_dir = (
             f"{REPO_PATH}/data/training_images/{self.modality}"
         )
@@ -39,7 +39,7 @@ class Configuration:
         # Reuse UNETxAE chips (full dataset)
         self.preprocessed_dir = (
             f"{REPO_PATH}/data/preprocessed/"
-            f"2026-04-21_UNETxAE"
+            f"2026-04-22_SWINxAE"
         )
 
         # Checkpointing / logs / results (model + modality subfolders)
