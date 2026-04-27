@@ -19,6 +19,7 @@ venv-bubble/
 data/
 
 #Ignore R files
+Rproj/
 .RData
 .Rprofile
 .Rhistory
@@ -27,3 +28,5 @@ renv.lock
 
 #Ignore figs
 figs/
+.Rproj.user
+.positai
