@@ -12,8 +12,6 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, Iterator, Optional, Tuple, List
 
-from config.configSwinUnet import *
-
 # h5py: for backwards compatibility with old TensorFlow model checkpoints (likely not in use)
 try:
     import h5py
@@ -2085,5 +2083,26 @@ def train_TerraMind(conf):
     )
 
 if __name__ == "__main__":
-    config = Configuration().validate()
-    train_SwinUNetPP(config)
+    import argparse
+    import importlib
+
+    parser = argparse.ArgumentParser(description="Train a segmentation model.")
+    parser.add_argument(
+        "--config",
+        required=True,
+        help="Dotted module path to a config (e.g. 'config.configSwinUnet').",
+    )
+    parser.add_argument(
+        "--arch",
+        required=True,
+        choices=["unet", "swin", "tm"],
+        help="Architecture to train. Must match the chosen config.",
+    )
+    args = parser.parse_args()
+
+    config = importlib.import_module(args.config).Configuration().validate()
+    {
+        "unet": train_UNet,
+        "swin": train_SwinUNetPP,
+        "tm": train_TerraMind,
+    }[args.arch](config)

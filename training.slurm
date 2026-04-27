@@ -23,6 +23,6 @@ echo "GPU: $CUDA_VISIBLE_DEVICES"
 
 python -c "import torch; print(f'PyTorch {torch.__version__}, CUDA: {torch.cuda.is_available()}, Device: {torch.cuda.get_device_name(0)}')"
 
-python training.py
+python training.py --config config.configSwinUnet --arch swin
 
 echo "Job finished: $(date)"

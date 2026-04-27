@@ -93,8 +93,6 @@ from core.losses import (
 )
 from core.split_frames import split_dataset  # Load train/val/test split indices
 
-from config.configSwinUnet import *
-
 # ===== Fast execution defaults / mixed precision =====
 # Enable TensorFloat-32 (less precision, faster math) for matrix multiply & convolutions
 # This trades a tiny bit of accuracy for significant GPU speedup
@@ -1499,5 +1497,26 @@ def evaluate_TerraMind(conf) -> None:
 
 
 if __name__ == "__main__":
-    config = Configuration().validate()
-    evaluate_SwinUNetPP(config)
+    import argparse
+    import importlib
+
+    parser = argparse.ArgumentParser(description="Evaluate trained checkpoints.")
+    parser.add_argument(
+        "--config",
+        required=True,
+        help="Dotted module path to a config (e.g. 'config.configSwinUnet').",
+    )
+    parser.add_argument(
+        "--arch",
+        required=True,
+        choices=["unet", "swin", "tm"],
+        help="Architecture matching the checkpoints in saved_models_dir.",
+    )
+    args = parser.parse_args()
+
+    config = importlib.import_module(args.config).Configuration().validate()
+    {
+        "unet": evaluate_unet,
+        "swin": evaluate_SwinUNetPP,
+        "tm": evaluate_TerraMind,
+    }[args.arch](config)
