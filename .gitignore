@@ -7,6 +7,7 @@
 # Ignore Claude
 CLAUDE.md
 pipeline_guide.md
+next_steps_2026-04-27.md
 .claude/
 # Ignore virtual environment folders
 venv-bubble/
@@ -28,3 +29,5 @@ renv.lock
 .RData
 .Rhistory
 /Rproj
+.Rproj.user
+.positai
