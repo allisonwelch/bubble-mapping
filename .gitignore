@@ -27,3 +27,4 @@ renv/
 renv.lock
 .RData
 .Rhistory
+/Rproj
