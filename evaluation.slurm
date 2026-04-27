@@ -1,13 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=bubble-eval
-#SBATCH --partition=l40s
+#SBATCH --partition=h100
 #SBATCH --time=04:00:00
 #SBATCH --gpus=1
 #SBATCH --mem-per-gpu=120G
 #SBATCH --cpus-per-gpu=6
 #SBATCH --output=/home/amwelch3/bubble-mapping/logs/eval_%j.out
 #SBATCH --mail-user=amwelch3@alaska.edu
-#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-type=BEGIN,END,FAIL
 
 module purge
 module load slurm
