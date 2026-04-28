@@ -4,6 +4,7 @@ import numpy as np
 import rasterio
 from skimage.measure import label, regionprops
 import pandas as pd
+from tqdm import tqdm
 
 # 1. Locate paired (prediction, ground-truth) test images.
 #    Predictions are binary .tif files written by evaluation.py into
@@ -28,6 +29,14 @@ def cc_with_props(binary_mask):
     props = regionprops(lab)
     return lab, props
 
+def _bbox_overlap(b1, b2):
+    # bbox = (min_row, min_col, max_row, max_col); max is exclusive
+    r0 = max(b1[0], b2[0]); c0 = max(b1[1], b2[1])
+    r1 = min(b1[2], b2[2]); c1 = min(b1[3], b2[3])
+    if r1 <= r0 or c1 <= c0:
+        return None
+    return r0, c0, r1, c1
+
 # 3. Match predicted CCs to GT CCs.
 #    Greedy by IoU; ties broken by centroid distance.
 def match_components(pred_lab, pred_props, gt_lab, gt_props,
@@ -37,15 +46,21 @@ def match_components(pred_lab, pred_props, gt_lab, gt_props,
     # Build IoU matrix only over bounding-box-overlapping pairs (scales)
     for gp in gt_props:
         best, best_iou = None, 0.0
-        gt_mask = (gt_lab == gp.label)
+        gb = gp.bbox
+        gt_area = gp.area # pixel count
         for pp in pred_props:
             if pp.label in used_pred:
                 continue
-            pred_mask = (pred_lab == pp.label)
-            inter = np.logical_and(gt_mask, pred_mask).sum()
+            ub = _bbox_overlap(gb, pp.bbox)
+            if ub is None:
+                continue # no overlap, IoU = 0
+            r0, c0, r1, c1 = ub
+            gt_crop = (gt_lab[r0:r1, c0:c1] == gp.label)
+            pr_crop = (pred_lab[r0:r1, c0:c1] == pp.label)
+            inter = np.logical_and(gt_crop, pr_crop).sum()
             if inter == 0:
                 continue
-            union = np.logical_or(gt_mask, pred_mask).sum()
+            union = gt_area + pp.area - inter # cheaper than a second logical_or
             iou = inter / union
             if iou > best_iou:
                 best_iou, best = iou, pp.label
@@ -59,9 +74,11 @@ def match_components(pred_lab, pred_props, gt_lab, gt_props,
 # 4. Aggregate over all test images, compute precision/recall/F1.
 def main(pred_dir, chip_dir):
     rows = []
-    for pred_fp in sorted(glob.glob(os.path.join(pred_dir, "*.tif"))):
-        if pred_fp.endswith("_prob.tif"):
-            continue   # skip probability rasters
+    pred_fps = [
+        fp for fp in sorted(glob.glob(os.path.join(pred_dir, "*.tif")))
+        if not fp.endswith(("_prob.tif", "_epistemic.tif", "_aleatoric.tif"))
+    ]
+    for pred_fp in tqdm(pred_fps, desc="Seep-level eval"):
         chip_fp = os.path.join(chip_dir, os.path.basename(pred_fp))
         if not os.path.exists(chip_fp):
             continue
@@ -77,6 +94,7 @@ def main(pred_dir, chip_dir):
             "fn": len(fn_ids),
             "fp": len(fp_ids),
         })
+
     df = pd.DataFrame(rows)
     tp = df["tp"].sum(); fn = df["fn"].sum(); fp = df["fp"].sum()
     recall    = tp / max(1, tp + fn)
