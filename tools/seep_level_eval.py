@@ -141,17 +141,18 @@ def main(pred_dir, chip_dir):
             "r_circularity": corrs.get("circularity", np.nan),
         })
 
-        pf_idx = pred_feats.set_index("id")
-        gf_idx = gt_feats.set_index("id")
-        for pid, gid in matches:
-            pf, gf = pf_idx.loc[pid], gf_idx.loc[gid]
-            pair_rows.append({
-                "image": os.path.basename(pred_fp),
-                "pred_id": pid, "gt_id": gid,
-                "area_m2_pred":     pf["area_m2"],     "area_m2_gt":     gf["area_m2"],
-                "perim_m_pred":     pf["perim_m"],     "perim_m_gt":     gf["perim_m"],
-                "circularity_pred": pf["circularity"], "circularity_gt": gf["circularity"],
-            })
+        if matches:
+            pf_idx = pred_feats.set_index("id")
+            gf_idx = gt_feats.set_index("id")
+            for pid, gid in matches:
+                pf, gf = pf_idx.loc[pid], gf_idx.loc[gid]
+                pair_rows.append({
+                    "image": os.path.basename(pred_fp),
+                    "pred_id": pid, "gt_id": gid,
+                    "area_m2_pred":     pf["area_m2"],     "area_m2_gt":     gf["area_m2"],
+                    "perim_m_pred":     pf["perim_m"],     "perim_m_gt":     gf["perim_m"],
+                    "circularity_pred": pf["circularity"], "circularity_gt": gf["circularity"],
+                })
 
     df = pd.DataFrame(rows)
     pairs_df = pd.DataFrame(pair_rows)
