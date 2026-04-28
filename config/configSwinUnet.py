@@ -43,9 +43,16 @@ class Configuration:
         )
 
         # Checkpointing / logs / results (model + modality subfolders)
-        self.continue_model_path = None
+        # Continue from run #5's best raw weights (best seep-F1 of the three saved files
+        # per CLAUDE.md 2026-04-28). starting_epoch will fall back to 0 because the
+        # metadata.json lookup uses {state_path}.metadata.json which won't match
+        # `.raw.weights.pt`'s naming — that's fine, num_epochs below counts fresh epochs.
+        self.continue_model_path = (
+            f"{REPO_PATH}/data/models/SWIN/{self.modality}/20260423-1056_SWINxAE/"
+            f"20260423-1056_SWINxAE.raw.weights.pt"
+        )
         self.saved_models_dir = (
-            f"{REPO_PATH}/data/models/SWIN/{self.modality}/20260423-1056_SWINxAE"
+            f"{REPO_PATH}/data/models/SWIN/{self.modality}/20260428_SWINxAE_continued"
         )
         self.logs_dir = (
             f"{REPO_PATH}/data/logs/SWIN/{self.modality}"
@@ -99,7 +106,9 @@ class Configuration:
         self.scheduler = "onecycle"      # NEW: tuned "scheduler" ("none"|"cosine"|"onecycle")
 
         self.train_batch_size = 8
-        self.num_epochs = 100
+        # Continuation run from run #5: 50 fresh epochs from warm-started weights.
+        # Early stopping (val_dice_coef, patience=15) will gate this if it plateaus.
+        self.num_epochs = 50
         self.num_training_steps = 500
         #change num_validation_images from 50 to 500 to address undersampling in low quantity training areas
         self.num_validation_images = 500
@@ -108,21 +117,21 @@ class Configuration:
         # Stop training if a monitored metric stops improving for `patience` epochs.
         # Saves compute and auto-picks the best checkpoint (best_saver still runs).
         # Set patience=0 to disable.
-        self.early_stopping_patience = 15
+        # self.early_stopping_patience = 15
         # Which key in the per-epoch logs dict to monitor.
         # "val_dice_coef" (higher=better) is the most informative for sparse segmentation.
         # Use "val_loss" (lower=better) as a safer fallback.
-        self.early_stopping_metric = "val_dice_coef"
+        # self.early_stopping_metric = "val_dice_coef"
         # "max" if higher metric is better (Dice, F1, IoU), "min" if lower is better (loss).
-        self.early_stopping_mode = "max"
+        # self.early_stopping_mode = "max"
         # Minimum improvement (absolute) to count as progress; prevents tiny fluctuations from
         # resetting the patience counter. 0.001 = require ≥0.001 Dice improvement.
-        self.early_stopping_min_delta = 0.001
+        # self.early_stopping_min_delta = 0.001
 
         # ------ EMA ------
-        self.use_ema = True
+        self.use_ema = False
         self.ema_decay = 0.999
-        self.eval_with_ema = True
+        self.eval_with_ema = False
 
         # ------ CHECKPOINTING / LOGGING ------
         self.model_save_interval = None
