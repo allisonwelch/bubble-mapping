@@ -3,6 +3,7 @@ import os, glob
 import numpy as np
 import rasterio
 from skimage.measure import label, regionprops
+from skimage.morphology import binary_closing, binary_opening, disk
 import pandas as pd
 from tqdm import tqdm
 
@@ -121,6 +122,11 @@ def main(pred_dir, chip_dir):
         if not os.path.exists(chip_fp):
             continue
         pred, gt, image, transform = load_pair(pred_fp, chip_fp)
+        # seep label smoothing
+        pred_bool = pred.astype(bool)
+        pred_bool = binary_closing(pred_bool, disk(1)) # fills 1-pixel notches in edges
+        pred_bool = binary_opening(pred_bool, disk(1))  # removes 1-pixel spurs
+        pred = pred_bool.astype(np.uint8)
         pl, pp = cc_with_props(pred)
         gl, gp = cc_with_props(gt)
         matches, fn_ids, fp_ids = match_components(pl, pp, gl, gp)
