@@ -19,7 +19,7 @@ def _smooth_pred(mask, radius=1):
     m = mask.astype(bool)
     m = binary_closing(m, disk(radius))
     m = binary_opening(m, disk(radius))
-    return m.astyp(np.uint8)
+    return m.astype(np.uint8)
 
 def load_pair(pred_tif, chip_tif):
     with rasterio.open(pred_tif) as src:
