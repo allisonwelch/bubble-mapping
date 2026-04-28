@@ -93,6 +93,8 @@ from core.losses import (
 )
 from core.split_frames import split_dataset  # Load train/val/test split indices
 
+from tools.seep_level_eval import main as eval_main
+
 # ===== Fast execution defaults / mixed precision =====
 # Enable TensorFloat-32 (less precision, faster math) for matrix multiply & convolutions
 # This trades a tiny bit of accuracy for significant GPU speedup
@@ -1407,6 +1409,8 @@ def _evaluate_arch(config, arch: str = "unet") -> None:
             ]
             _append_results_row(csv_path, header, row)
             results_written += 1
+
+            eval_main(out_dir, config.preprocessed_dir)
 
         except Exception as exc:
             print(_col(f"Evaluation failed for {ckpt_path}: {exc}", _C.RED))
