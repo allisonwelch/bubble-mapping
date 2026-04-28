@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=bubble-eval
 #SBATCH --partition=h100
-#SBATCH --time=04:00:00
+#SBATCH --time=01:00:00
 #SBATCH --gpus=1
-#SBATCH --mem-per-gpu=120G
+#SBATCH --mem-per-gpu=30G
 #SBATCH --cpus-per-gpu=6
 #SBATCH --output=/home/amwelch3/bubble-mapping/logs/eval_%j.out
 #SBATCH --mail-user=amwelch3@alaska.edu
