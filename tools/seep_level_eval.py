@@ -13,9 +13,17 @@ from tqdm import tqdm
 #    preprocessed chip in config.preprocessed_dir (this mirrors how
 #    evaluation.py reads frame.annotations — see evaluation.py:1066-1071).
 
+def _smooth_pred(mask, radius=1):
+    '''Closing+opening to remove boundary noise from per-pixel predictions.
+    Applied before connected-component (CC) analysis'''
+    m = mask.astype(bool)
+    m = binary_closing(m, disk(radius))
+    m = binary_opening(m, disk(radius))
+    return m.astyp(np.uint8)
+
 def load_pair(pred_tif, chip_tif):
     with rasterio.open(pred_tif) as src:
-        pred = src.read(1)              # binary 0/1
+        pred = _smooth_pred(src.read(1))
         transform = src.transform        # for physical sizes
     with rasterio.open(chip_tif) as src:
         n = src.count
@@ -122,11 +130,6 @@ def main(pred_dir, chip_dir):
         if not os.path.exists(chip_fp):
             continue
         pred, gt, image, transform = load_pair(pred_fp, chip_fp)
-        # seep label smoothing
-        pred_bool = pred.astype(bool)
-        pred_bool = binary_closing(pred_bool, disk(1)) # fills 1-pixel notches in edges
-        pred_bool = binary_opening(pred_bool, disk(1))  # removes 1-pixel spurs
-        pred = pred_bool.astype(np.uint8)
         pl, pp = cc_with_props(pred)
         gl, gp = cc_with_props(gt)
         matches, fn_ids, fp_ids = match_components(pl, pp, gl, gp)
