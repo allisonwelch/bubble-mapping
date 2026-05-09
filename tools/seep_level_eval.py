@@ -1,11 +1,13 @@
 # tools/seep_level_eval.py
-import os, glob
+import os, sys, glob
 import numpy as np
 import rasterio
 from skimage.measure import label, regionprops
-from skimage.morphology import binary_closing, binary_opening, disk
 import pandas as pd
 from tqdm import tqdm
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from write_seep_rasters import smooth_pred, write_rasters_for_pred
 
 # 1. Locate paired (prediction, ground-truth) test images.
 #    Predictions are binary .tif files written by evaluation.py into
@@ -13,17 +15,9 @@ from tqdm import tqdm
 #    preprocessed chip in config.preprocessed_dir (this mirrors how
 #    evaluation.py reads frame.annotations — see evaluation.py:1066-1071).
 
-def _smooth_pred(mask, radius=1):
-    '''Closing+opening to remove boundary noise from per-pixel predictions.
-    Applied before connected-component (CC) analysis'''
-    m = mask.astype(bool)
-    m = binary_closing(m, disk(radius))
-    m = binary_opening(m, disk(radius))
-    return m.astype(np.uint8)
-
 def load_pair(pred_tif, chip_tif):
     with rasterio.open(pred_tif) as src:
-        pred = _smooth_pred(src.read(1))
+        pred = smooth_pred(src.read(1))
         transform = src.transform        # for physical sizes
         pred_profile = src.profile.copy()
     with rasterio.open(chip_tif) as src:
@@ -38,17 +32,6 @@ def load_pair(pred_tif, chip_tif):
         gt = (gt / 255.0)
     gt_bin = (gt >= 0.5).astype(np.uint8)
     return pred, gt_bin, image, transform, pred_profile
-
-
-def _write_raster(path, arr, base_profile, dtype, nodata=None):
-    prof = base_profile.copy()
-    prof.update(driver="GTiff", count=1, dtype=dtype, compress="lzw")
-    if nodata is not None:
-        prof["nodata"] = nodata
-    else:
-        prof.pop("nodata", None)
-    with rasterio.open(path, "w", **prof) as dst:
-        dst.write(arr.astype(dtype), 1)
 
 # 2. Connected components and centroids.
 def cc_with_props(binary_mask):
@@ -147,12 +130,7 @@ def main(pred_dir, chip_dir):
         gl, gp = cc_with_props(gt)
         matches, fn_ids, fp_ids = match_components(pl, pp, gl, gp)
 
-        stem = os.path.splitext(os.path.basename(pred_fp))[0]
-        _write_raster(os.path.join(pred_dir, f"{stem}_smoothed.tif"),
-                      pred, pred_profile, dtype="uint8")
-        cc_dtype = "uint16" if int(pl.max()) < 65535 else "uint32"
-        _write_raster(os.path.join(pred_dir, f"{stem}_cc.tif"),
-                      pl, pred_profile, dtype=cc_dtype, nodata=0)
+        write_rasters_for_pred(pred_fp, smoothed=pred, cc=pl, profile=pred_profile)
 
         pred_feats = feature_table(image, pl, pp, transform)
         gt_feats   = feature_table(image, gl, gp, transform)
@@ -183,6 +161,15 @@ def main(pred_dir, chip_dir):
                     "circularity_pred": pf["circularity"], "circularity_gt": gf["circularity"],
                 })
 
+    if not rows:
+        raise RuntimeError(
+            f"No (prediction, chip) pairs were processed.\n"
+            f"  pred_dir = {pred_dir}\n"
+            f"  chip_dir = {chip_dir}\n"
+            f"Check that pred_dir contains the per-checkpoint subdir written by "
+            f"evaluation.py (e.g. {{results_dir}}/{{checkpoint_basename}}/), and "
+            f"that chip filenames in chip_dir match the prediction filenames."
+        )
     df = pd.DataFrame(rows)
     pairs_df = pd.DataFrame(pair_rows)
     tp = df["tp"].sum(); fn = df["fn"].sum(); fp = df["fp"].sum()
@@ -224,4 +211,5 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
     from config import configSwinUnet
     config = configSwinUnet.Configuration().validate()
-    main(pred_dir=config.results_dir, chip_dir=config.preprocessed_dir)
+    ckpt_pred_dir = os.path.join(config.results_dir, "20260428-1537_SWINxAE.weights")
+    main(pred_dir=ckpt_pred_dir, chip_dir=config.preprocessed_dir)
