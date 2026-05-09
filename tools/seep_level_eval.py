@@ -25,6 +25,7 @@ def load_pair(pred_tif, chip_tif):
     with rasterio.open(pred_tif) as src:
         pred = _smooth_pred(src.read(1))
         transform = src.transform        # for physical sizes
+        pred_profile = src.profile.copy()
     with rasterio.open(chip_tif) as src:
         n = src.count
         gt = src.read(n)                 # last band = annotation
@@ -36,7 +37,18 @@ def load_pair(pred_tif, chip_tif):
     if gt.max() > 1.5:
         gt = (gt / 255.0)
     gt_bin = (gt >= 0.5).astype(np.uint8)
-    return pred, gt_bin, image, transform
+    return pred, gt_bin, image, transform, pred_profile
+
+
+def _write_raster(path, arr, base_profile, dtype, nodata=None):
+    prof = base_profile.copy()
+    prof.update(driver="GTiff", count=1, dtype=dtype, compress="lzw")
+    if nodata is not None:
+        prof["nodata"] = nodata
+    else:
+        prof.pop("nodata", None)
+    with rasterio.open(path, "w", **prof) as dst:
+        dst.write(arr.astype(dtype), 1)
 
 # 2. Connected components and centroids.
 def cc_with_props(binary_mask):
@@ -123,16 +135,24 @@ def main(pred_dir, chip_dir):
     pair_rows = []
     pred_fps = [
         fp for fp in sorted(glob.glob(os.path.join(pred_dir, "*.tif")))
-        if not fp.endswith(("_prob.tif", "_epistemic.tif", "_aleatoric.tif"))
+        if not fp.endswith(("_prob.tif", "_epistemic.tif", "_aleatoric.tif",
+                            "_smoothed.tif", "_cc.tif"))
     ]
     for pred_fp in tqdm(pred_fps, desc="Seep-level eval"):
         chip_fp = os.path.join(chip_dir, os.path.basename(pred_fp))
         if not os.path.exists(chip_fp):
             continue
-        pred, gt, image, transform = load_pair(pred_fp, chip_fp)
+        pred, gt, image, transform, pred_profile = load_pair(pred_fp, chip_fp)
         pl, pp = cc_with_props(pred)
         gl, gp = cc_with_props(gt)
         matches, fn_ids, fp_ids = match_components(pl, pp, gl, gp)
+
+        stem = os.path.splitext(os.path.basename(pred_fp))[0]
+        _write_raster(os.path.join(pred_dir, f"{stem}_smoothed.tif"),
+                      pred, pred_profile, dtype="uint8")
+        cc_dtype = "uint16" if int(pl.max()) < 65535 else "uint32"
+        _write_raster(os.path.join(pred_dir, f"{stem}_cc.tif"),
+                      pl, pred_profile, dtype=cc_dtype, nodata=0)
 
         pred_feats = feature_table(image, pl, pp, transform)
         gt_feats   = feature_table(image, gl, gp, transform)
@@ -197,3 +217,9 @@ def main(pred_dir, chip_dir):
     }]).to_csv(os.path.join(pred_dir, "seep_level_summary.csv"), index=False)
 
     return precision, recall, f1
+
+
+if __name__ == "__main__":
+    from config import configSwinUnet
+    config = configSwinUnet.Configuration().validate()
+    main(pred_dir=config.results_dir, chip_dir=config.preprocessed_dir)
