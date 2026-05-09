@@ -220,6 +220,8 @@ def main(pred_dir, chip_dir):
 
 
 if __name__ == "__main__":
+    import sys
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
     from config import configSwinUnet
     config = configSwinUnet.Configuration().validate()
     main(pred_dir=config.results_dir, chip_dir=config.preprocessed_dir)
