@@ -186,9 +186,9 @@ class Configuration:
         # a cluster head). Non-anchor bubbles within seep_cluster_radius_m of an
         # anchor centroid join that anchor's cluster. Others form singleton clusters.
         # Default anchor area = pi * (25 cm)^2; provisional until Walter's threshold.
-        self.seep_anchor_area_m2 = float(np.pi * (0.25 ** 2))
+        self.seep_anchor_area_m2 = float(np.pi * (0.125 ** 2))
         self.seep_cluster_radius_m = 0.5
-        self.write_seep_cluster_rasters = False
+        self.write_seep_cluster_rasters = True
 
         # Prediction outputs (for completeness with tools)
         # Attribute field in training_area_fn whose value is the .tif basename (no extension)
