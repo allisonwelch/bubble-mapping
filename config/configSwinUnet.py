@@ -187,7 +187,7 @@ class Configuration:
         # anchor centroid join that anchor's cluster. Others form singleton clusters.
         # Default anchor area = pi * (25 cm)^2; provisional until Walter's threshold.
         self.seep_anchor_area_m2 = float(np.pi * (0.25 ** 2))
-        self.seep_cluster_radius_m = 0.3
+        self.seep_cluster_radius_m = 1.0
         self.write_seep_cluster_rasters = False
 
         # Prediction outputs (for completeness with tools)
