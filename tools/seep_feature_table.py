@@ -25,6 +25,9 @@ import numpy as np
 import pandas as pd
 import rasterio
 from rasterio.transform import xy as rio_xy
+from scipy.spatial import cKDTree
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import connected_components
 from skimage.measure import regionprops
 from tqdm import tqdm
 
@@ -37,6 +40,16 @@ DEFAULT_CLUSTER_RADIUS_M = 0.5
 # When set, non-anchors above the cap are forced to be singletons even if an
 # anchor is in range — guards against medium-sized bubbles getting absorbed.
 DEFAULT_SATELLITE_MAX_AREA_M2 = None
+
+# --- Phase-2 ("lonely cluster") parameters ---
+# After the anchor pass, group Phase-1 singletons that are close together AND
+# sit in a sparse halo. Catches isolated clusters of small bubbles that have
+# no anchor among them. Halo is measured from the candidate cluster's
+# area-weighted centroid; cluster members are excluded from the halo count.
+# Set lonely_cluster_radius_m=0 OR lonely_max_halo_neighbors=0 to disable.
+DEFAULT_LONELY_CLUSTER_RADIUS_M = 0.4
+DEFAULT_LONELY_HALO_RADIUS_M = 1.5
+DEFAULT_LONELY_MAX_HALO_NEIGHBORS = 5
 
 _AUX_SUFFIXES = ("_prob.tif", "_epistemic.tif", "_aleatoric.tif",
                  "_smoothed.tif", "_cc.tif", "_seep_cluster.tif")
@@ -119,12 +132,86 @@ def anchor_cluster(bubble_df, anchor_area_m2, cluster_radius_m,
     return df
 
 
+def lonely_cluster(bubble_df,
+                   lonely_cluster_radius_m=DEFAULT_LONELY_CLUSTER_RADIUS_M,
+                   lonely_halo_radius_m=DEFAULT_LONELY_HALO_RADIUS_M,
+                   lonely_max_halo_neighbors=DEFAULT_LONELY_MAX_HALO_NEIGHBORS):
+    """Phase-2: group Phase-1 singletons that sit in a sparse halo.
+
+    Candidates: bubbles that came out of anchor_cluster as their own cluster
+    (cluster_id == bubble_id). Build connected components on those with edges
+    within `lonely_cluster_radius_m`. For each candidate with >= 2 members,
+    count *other* bubbles (any type, anywhere in the image) whose centroid is
+    within `lonely_halo_radius_m` of the candidate's area-weighted centroid;
+    exclude the candidate's own members. If that halo count is strictly less
+    than `lonely_max_halo_neighbors`, accept the cluster and assign every
+    member the same cluster_id (using the bubble_id of the largest member).
+
+    Adds a `lonely_pass` boolean column to the returned DataFrame indicating
+    membership in an accepted Phase-2 cluster.
+    """
+    df = bubble_df.copy()
+    df["lonely_pass"] = False
+
+    if (lonely_cluster_radius_m is None or lonely_cluster_radius_m <= 0 or
+            lonely_max_halo_neighbors is None or lonely_max_halo_neighbors <= 0 or
+            len(df) < 2):
+        return df
+
+    is_singleton = df["cluster_id"].values == df["bubble_id"].values
+    if is_singleton.sum() < 2:
+        return df
+
+    sing = df[is_singleton]
+    s_xy = sing[["centroid_x_m", "centroid_y_m"]].values
+    s_ids = sing["bubble_id"].values.astype(np.int64)
+    s_areas = sing["area_m2"].values
+    n_s = len(sing)
+
+    tree_s = cKDTree(s_xy)
+    pairs = tree_s.query_pairs(r=float(lonely_cluster_radius_m), output_type="ndarray")
+    if len(pairs) == 0:
+        return df
+
+    row = np.concatenate([pairs[:, 0], pairs[:, 1]])
+    col = np.concatenate([pairs[:, 1], pairs[:, 0]])
+    data = np.ones(len(row), dtype=np.int8)
+    graph = csr_matrix((data, (row, col)), shape=(n_s, n_s))
+    _, labels = connected_components(graph, directed=False)
+
+    all_xy = df[["centroid_x_m", "centroid_y_m"]].values
+    all_ids = df["bubble_id"].values.astype(np.int64)
+    tree_all = cKDTree(all_xy)
+
+    for c in np.unique(labels):
+        mask = (labels == c)
+        if mask.sum() < 2:
+            continue
+        member_ids = s_ids[mask]
+        member_xy = s_xy[mask]
+        member_areas = s_areas[mask]
+        w = member_areas
+        wsum = float(w.sum()) if w.sum() > 0 else 1.0
+        cx = float((member_xy[:, 0] * w).sum() / wsum)
+        cy = float((member_xy[:, 1] * w).sum() / wsum)
+        halo_idx = tree_all.query_ball_point([cx, cy], r=float(lonely_halo_radius_m))
+        halo_count = len(set(all_ids[halo_idx]) - set(member_ids.tolist()))
+        if halo_count < lonely_max_halo_neighbors:
+            new_cid = int(member_ids[int(np.argmax(member_areas))])
+            sel = df["bubble_id"].isin(member_ids)
+            df.loc[sel, "cluster_id"] = new_cid
+            df.loc[sel, "lonely_pass"] = True
+    return df
+
+
 def aggregate_clusters(bubble_df):
     """One row per cluster. Pixel-weighted aggregates use area as the weight."""
     rows = []
+    has_lonely_col = "lonely_pass" in bubble_df.columns
     for cid, grp in bubble_df.groupby("cluster_id", sort=True):
         n = len(grp)
         has_anchor = bool(grp["is_anchor"].any())
+        is_lonely = bool(grp["lonely_pass"].any()) if has_lonely_col else False
         anc = grp[grp["is_anchor"]]
         anchor_area = float(anc["area_m2"].iloc[0]) if has_anchor else np.nan
 
@@ -155,6 +242,7 @@ def aggregate_clusters(bubble_df):
             "cluster_id": int(cid),
             "n_bubbles": int(n),
             "has_anchor": has_anchor,
+            "is_lonely_cluster": is_lonely,
             "anchor_area_m2": anchor_area,
             "total_area_m2": total_area,
             "max_area_m2": max_area,
@@ -180,7 +268,7 @@ def build_cluster_raster(cc_lab, bubble_df):
 
 
 def _write_cluster_raster(pred_fp, raster, profile):
-    out = _aux_path(pred_fp, "_r125_r45_r10_seep_cluster.tif")
+    out = _aux_path(pred_fp, "_r125_r45_r10_lonely_seep_cluster.tif")
     prof = profile.copy()
     max_val = int(raster.max()) if raster.size > 0 else 0
     dtype = "uint16" if max_val <= 65535 else "uint32"
@@ -215,6 +303,9 @@ def process_pred(pred_fp, chip_fp,
                  anchor_area_m2=DEFAULT_ANCHOR_AREA_M2,
                  cluster_radius_m=DEFAULT_CLUSTER_RADIUS_M,
                  satellite_max_area_m2=DEFAULT_SATELLITE_MAX_AREA_M2,
+                 lonely_cluster_radius_m=DEFAULT_LONELY_CLUSTER_RADIUS_M,
+                 lonely_halo_radius_m=DEFAULT_LONELY_HALO_RADIUS_M,
+                 lonely_max_halo_neighbors=DEFAULT_LONELY_MAX_HALO_NEIGHBORS,
                  write_raster=True):
     """
     Per-image extraction.
@@ -234,6 +325,10 @@ def process_pred(pred_fp, chip_fp,
     bubbles = compute_bubble_features(cc, image, transform)
     bubbles = anchor_cluster(bubbles, anchor_area_m2, cluster_radius_m,
                              satellite_max_area_m2=satellite_max_area_m2)
+    bubbles = lonely_cluster(bubbles,
+                             lonely_cluster_radius_m=lonely_cluster_radius_m,
+                             lonely_halo_radius_m=lonely_halo_radius_m,
+                             lonely_max_halo_neighbors=lonely_max_halo_neighbors)
     clusters = aggregate_clusters(bubbles)
 
     name = os.path.basename(pred_fp)
@@ -249,38 +344,67 @@ def process_pred(pred_fp, chip_fp,
 def write_feature_csvs(pred_dir, bubbles, clusters,
                        anchor_area_m2=DEFAULT_ANCHOR_AREA_M2,
                        cluster_radius_m=DEFAULT_CLUSTER_RADIUS_M,
-                       satellite_max_area_m2=DEFAULT_SATELLITE_MAX_AREA_M2):
+                       satellite_max_area_m2=DEFAULT_SATELLITE_MAX_AREA_M2,
+                       lonely_cluster_radius_m=DEFAULT_LONELY_CLUSTER_RADIUS_M,
+                       lonely_halo_radius_m=DEFAULT_LONELY_HALO_RADIUS_M,
+                       lonely_max_halo_neighbors=DEFAULT_LONELY_MAX_HALO_NEIGHBORS):
     bubbles.to_csv(os.path.join(pred_dir, "seep_features_per_bubble.csv"),
                    index=False)
     clusters.to_csv(os.path.join(pred_dir, "seep_features_per_cluster.csv"),
                     index=False)
     _print_summary(bubbles, clusters, anchor_area_m2, cluster_radius_m,
-                   satellite_max_area_m2)
+                   satellite_max_area_m2, lonely_cluster_radius_m,
+                   lonely_halo_radius_m, lonely_max_halo_neighbors)
 
 
 def _print_summary(bubbles, clusters, anchor_area_m2, cluster_radius_m,
-                   satellite_max_area_m2):
+                   satellite_max_area_m2, lonely_cluster_radius_m,
+                   lonely_halo_radius_m, lonely_max_halo_neighbors):
     n_bub = len(bubbles)
     n_anc = int(bubbles["is_anchor"].sum())
     n_clu = len(clusters)
     n_sat = int(((~bubbles["is_anchor"]) &
                  (bubbles["cluster_id"] != bubbles["bubble_id"])).sum())
     n_singleton = int(clusters["n_bubbles"].eq(1).sum())
+    n_multi = n_clu - n_singleton
     # "Medium" bubbles: non-anchor, area above the satellite cap (forced singletons).
     if "is_satellite_eligible" in bubbles.columns:
         n_medium = int(((~bubbles["is_anchor"]) &
                         (~bubbles["is_satellite_eligible"])).sum())
     else:
         n_medium = 0
+    if "is_lonely_cluster" in clusters.columns:
+        n_lonely_clusters = int(clusters["is_lonely_cluster"].sum())
+        n_lonely_members = int(
+            clusters.loc[clusters["is_lonely_cluster"], "n_bubbles"].sum()
+        )
+    else:
+        n_lonely_clusters = 0
+        n_lonely_members = 0
+    n_anchor_multi = n_multi - n_lonely_clusters
+
     cap_str = (f"{satellite_max_area_m2:.4f}"
                if satellite_max_area_m2 is not None
                and np.isfinite(satellite_max_area_m2) else "off")
-    print(f"\nSEEP-FEATURE: anchor_area_m2={anchor_area_m2:.4f}  "
+    lonely_active = (lonely_cluster_radius_m and lonely_cluster_radius_m > 0
+                     and lonely_max_halo_neighbors
+                     and lonely_max_halo_neighbors > 0)
+    print(f"\nSEEP-FEATURE PHASE 1: anchor_area_m2={anchor_area_m2:.4f}  "
           f"cluster_radius_m={cluster_radius_m:.2f}  "
           f"satellite_max_area_m2={cap_str}")
-    print(f"  n_bubbles={n_bub}  n_anchors={n_anc}  n_medium={n_medium}  "
-          f"n_clusters={n_clu}  n_satellites={n_sat}  "
-          f"n_singletons={n_singleton}")
+    if lonely_active:
+        print(f"SEEP-FEATURE PHASE 2: lonely_cluster_radius_m={lonely_cluster_radius_m:.2f}  "
+              f"lonely_halo_radius_m={lonely_halo_radius_m:.2f}  "
+              f"lonely_max_halo_neighbors={lonely_max_halo_neighbors}")
+    else:
+        print("SEEP-FEATURE PHASE 2: disabled")
+    print(f"  n_bubbles={n_bub}  =  n_clusters={n_clu}  +  n_satellites={n_sat}")
+    print(f"  n_anchors={n_anc}  n_medium={n_medium}")
+    print(f"  cluster breakdown:")
+    print(f"    singletons (n=1):     {n_singleton}")
+    print(f"    anchor multi (n>=2):  {n_anchor_multi}")
+    print(f"    lonely (n>=2):        {n_lonely_clusters}  "
+          f"({n_lonely_members} members)")
     hist = clusters["n_bubbles"].value_counts().sort_index()
     print("  cluster-size histogram (n_bubbles -> n_clusters):")
     for size, count in hist.items():
@@ -291,6 +415,9 @@ def process_dir(pred_dir, chip_dir,
                 anchor_area_m2=DEFAULT_ANCHOR_AREA_M2,
                 cluster_radius_m=DEFAULT_CLUSTER_RADIUS_M,
                 satellite_max_area_m2=DEFAULT_SATELLITE_MAX_AREA_M2,
+                lonely_cluster_radius_m=DEFAULT_LONELY_CLUSTER_RADIUS_M,
+                lonely_halo_radius_m=DEFAULT_LONELY_HALO_RADIUS_M,
+                lonely_max_halo_neighbors=DEFAULT_LONELY_MAX_HALO_NEIGHBORS,
                 write_rasters=True):
     pred_fps = [
         fp for fp in sorted(glob.glob(os.path.join(pred_dir, "*.tif")))
@@ -306,6 +433,9 @@ def process_dir(pred_dir, chip_dir,
             anchor_area_m2=anchor_area_m2,
             cluster_radius_m=cluster_radius_m,
             satellite_max_area_m2=satellite_max_area_m2,
+            lonely_cluster_radius_m=lonely_cluster_radius_m,
+            lonely_halo_radius_m=lonely_halo_radius_m,
+            lonely_max_halo_neighbors=lonely_max_halo_neighbors,
             write_raster=write_rasters,
         )
         bubble_dfs.append(b)
@@ -319,7 +449,10 @@ def process_dir(pred_dir, chip_dir,
     write_feature_csvs(pred_dir, bubbles, clusters,
                        anchor_area_m2=anchor_area_m2,
                        cluster_radius_m=cluster_radius_m,
-                       satellite_max_area_m2=satellite_max_area_m2)
+                       satellite_max_area_m2=satellite_max_area_m2,
+                       lonely_cluster_radius_m=lonely_cluster_radius_m,
+                       lonely_halo_radius_m=lonely_halo_radius_m,
+                       lonely_max_halo_neighbors=lonely_max_halo_neighbors)
     return bubbles, clusters
 
 
@@ -338,5 +471,11 @@ if __name__ == "__main__":
                                  DEFAULT_CLUSTER_RADIUS_M),
         satellite_max_area_m2=getattr(config, "seep_satellite_max_area_m2",
                                       DEFAULT_SATELLITE_MAX_AREA_M2),
+        lonely_cluster_radius_m=getattr(config, "seep_lonely_cluster_radius_m",
+                                        DEFAULT_LONELY_CLUSTER_RADIUS_M),
+        lonely_halo_radius_m=getattr(config, "seep_lonely_halo_radius_m",
+                                     DEFAULT_LONELY_HALO_RADIUS_M),
+        lonely_max_halo_neighbors=getattr(config, "seep_lonely_max_halo_neighbors",
+                                          DEFAULT_LONELY_MAX_HALO_NEIGHBORS),
         write_rasters=getattr(config, "write_seewp_cluster_rasters", True),
     )

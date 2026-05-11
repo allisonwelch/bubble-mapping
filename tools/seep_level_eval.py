@@ -14,6 +14,9 @@ from seep_feature_table import (
     DEFAULT_ANCHOR_AREA_M2,
     DEFAULT_CLUSTER_RADIUS_M,
     DEFAULT_SATELLITE_MAX_AREA_M2,
+    DEFAULT_LONELY_CLUSTER_RADIUS_M,
+    DEFAULT_LONELY_HALO_RADIUS_M,
+    DEFAULT_LONELY_MAX_HALO_NEIGHBORS,
 )
 
 # 1. Locate paired (prediction, ground-truth) test images.
@@ -124,6 +127,9 @@ def main(pred_dir, chip_dir,
          anchor_area_m2=DEFAULT_ANCHOR_AREA_M2,
          cluster_radius_m=DEFAULT_CLUSTER_RADIUS_M,
          satellite_max_area_m2=DEFAULT_SATELLITE_MAX_AREA_M2,
+         lonely_cluster_radius_m=DEFAULT_LONELY_CLUSTER_RADIUS_M,
+         lonely_halo_radius_m=DEFAULT_LONELY_HALO_RADIUS_M,
+         lonely_max_halo_neighbors=DEFAULT_LONELY_MAX_HALO_NEIGHBORS,
          write_seep_cluster_rasters=True):
     rows = []
     pair_rows = []
@@ -150,6 +156,9 @@ def main(pred_dir, chip_dir,
             anchor_area_m2=anchor_area_m2,
             cluster_radius_m=cluster_radius_m,
             satellite_max_area_m2=satellite_max_area_m2,
+            lonely_cluster_radius_m=lonely_cluster_radius_m,
+            lonely_halo_radius_m=lonely_halo_radius_m,
+            lonely_max_halo_neighbors=lonely_max_halo_neighbors,
             write_raster=write_seep_cluster_rasters,
         )
         bubble_dfs.append(b_df)
@@ -232,7 +241,10 @@ def main(pred_dir, chip_dir,
         _seep_feat_write_csvs(pred_dir, bubbles_all, clusters_all,
                               anchor_area_m2=anchor_area_m2,
                               cluster_radius_m=cluster_radius_m,
-                              satellite_max_area_m2=satellite_max_area_m2)
+                              satellite_max_area_m2=satellite_max_area_m2,
+                              lonely_cluster_radius_m=lonely_cluster_radius_m,
+                              lonely_halo_radius_m=lonely_halo_radius_m,
+                              lonely_max_halo_neighbors=lonely_max_halo_neighbors)
 
     return precision, recall, f1
 
@@ -252,5 +264,11 @@ if __name__ == "__main__":
                                  DEFAULT_CLUSTER_RADIUS_M),
         satellite_max_area_m2=getattr(config, "seep_satellite_max_area_m2",
                                       DEFAULT_SATELLITE_MAX_AREA_M2),
+        lonely_cluster_radius_m=getattr(config, "seep_lonely_cluster_radius_m",
+                                        DEFAULT_LONELY_CLUSTER_RADIUS_M),
+        lonely_halo_radius_m=getattr(config, "seep_lonely_halo_radius_m",
+                                     DEFAULT_LONELY_HALO_RADIUS_M),
+        lonely_max_halo_neighbors=getattr(config, "seep_lonely_max_halo_neighbors",
+                                          DEFAULT_LONELY_MAX_HALO_NEIGHBORS),
         write_seep_cluster_rasters=getattr(config, "write_seep_cluster_rasters", True),
     )

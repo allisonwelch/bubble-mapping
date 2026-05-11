@@ -193,6 +193,19 @@ class Configuration:
         # eligible). Default = pi * (7.5 cm)^2 — provisional; tune from
         # cluster-size histogram and n_medium count in the script printout.
         self.seep_satellite_max_area_m2 = float(np.pi * (0.1 ** 2))
+        # Phase-2 ("lonely") clustering: after the anchor pass, group Phase-1
+        # singletons that sit close together AND have a sparse halo around the
+        # candidate cluster's centroid. Catches isolated clusters of small
+        # bubbles that have no anchor among them.
+        #   lonely_cluster_radius_m   inner grouping radius for singletons
+        #   lonely_halo_radius_m      radius around the candidate centroid in
+        #                             which other bubbles are counted
+        #   lonely_max_halo_neighbors strict-less-than; <= this many neighbors
+        #                             outside the candidate accepts the cluster
+        # Set lonely_cluster_radius_m=0 OR lonely_max_halo_neighbors=0 to disable.
+        self.seep_lonely_cluster_radius_m = 0.4
+        self.seep_lonely_halo_radius_m = 1.5
+        self.seep_lonely_max_halo_neighbors = 5
         self.write_seep_cluster_rasters = True
 
         # Prediction outputs (for completeness with tools)
