@@ -188,7 +188,7 @@ class Configuration:
         # Default anchor area = pi * (25 cm)^2; provisional until Walter's threshold.
         self.seep_anchor_area_m2 = float(np.pi * (0.25 ** 2))
         self.seep_cluster_radius_m = 1.0
-        self.write_seep_cluster_rasters = False
+        self.write_seep_cluster_rasters = True
 
         # Prediction outputs (for completeness with tools)
         # Attribute field in training_area_fn whose value is the .tif basename (no extension)

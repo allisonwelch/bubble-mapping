@@ -162,7 +162,7 @@ def build_cluster_raster(cc_lab, bubble_df):
 
 
 def _write_cluster_raster(pred_fp, raster, profile):
-    out = _aux_path(pred_fp, "_seep_cluster.tif")
+    out = _aux_path(pred_fp, "_1_seep_cluster.tif")
     prof = profile.copy()
     max_val = int(raster.max()) if raster.size > 0 else 0
     dtype = "uint16" if max_val <= 65535 else "uint32"
@@ -300,5 +300,5 @@ if __name__ == "__main__":
                                DEFAULT_ANCHOR_AREA_M2),
         cluster_radius_m=getattr(config, "seep_cluster_radius_m",
                                  DEFAULT_CLUSTER_RADIUS_M),
-        write_rasters=getattr(config, "write_seep_cluster_rasters", True),
+        write_rasters=getattr(config, "write_seewp_cluster_rasters", True),
     )
