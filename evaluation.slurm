@@ -16,4 +16,4 @@ eval "$(conda shell.bash hook)"
 conda activate venv-bubble
 
 cd ~/bubble-mapping
-python evaluation.py --config config.configSwinUnet --arch swin
+python tools/seep_feature_table.py

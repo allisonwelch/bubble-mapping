@@ -8,6 +8,12 @@ from tqdm import tqdm
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from write_seep_rasters import smooth_pred, write_rasters_for_pred
+from seep_feature_table import (
+    process_pred as _seep_feat_process,
+    write_feature_csvs as _seep_feat_write_csvs,
+    DEFAULT_ANCHOR_AREA_M2,
+    DEFAULT_CLUSTER_RADIUS_M,
+)
 
 # 1. Locate paired (prediction, ground-truth) test images.
 #    Predictions are binary .tif files written by evaluation.py into
@@ -113,13 +119,17 @@ def paired_feature_correlation(matches, pred_feats, gt_feats):
     return out
 
 # 4. Aggregate over all test images, compute precision/recall/F1.
-def main(pred_dir, chip_dir):
+def main(pred_dir, chip_dir,
+         anchor_area_m2=DEFAULT_ANCHOR_AREA_M2,
+         cluster_radius_m=DEFAULT_CLUSTER_RADIUS_M,
+         write_seep_cluster_rasters=True):
     rows = []
     pair_rows = []
+    bubble_dfs, cluster_dfs = [], []
     pred_fps = [
         fp for fp in sorted(glob.glob(os.path.join(pred_dir, "*.tif")))
         if not fp.endswith(("_prob.tif", "_epistemic.tif", "_aleatoric.tif",
-                            "_smoothed.tif", "_cc.tif"))
+                            "_smoothed.tif", "_cc.tif", "_seep_cluster.tif"))
     ]
     for pred_fp in tqdm(pred_fps, desc="Seep-level eval"):
         chip_fp = os.path.join(chip_dir, os.path.basename(pred_fp))
@@ -131,6 +141,16 @@ def main(pred_dir, chip_dir):
         matches, fn_ids, fp_ids = match_components(pl, pp, gl, gp)
 
         write_rasters_for_pred(pred_fp, smoothed=pred, cc=pl, profile=pred_profile)
+
+        b_df, c_df = _seep_feat_process(
+            pred_fp, chip_fp,
+            cc=pl, image=image, transform=transform, profile=pred_profile,
+            anchor_area_m2=anchor_area_m2,
+            cluster_radius_m=cluster_radius_m,
+            write_raster=write_seep_cluster_rasters,
+        )
+        bubble_dfs.append(b_df)
+        cluster_dfs.append(c_df)
 
         pred_feats = feature_table(image, pl, pp, transform)
         gt_feats   = feature_table(image, gl, gp, transform)
@@ -203,6 +223,13 @@ def main(pred_dir, chip_dir):
         "r_circularity": global_r["circularity"],
     }]).to_csv(os.path.join(pred_dir, "seep_level_summary.csv"), index=False)
 
+    if bubble_dfs:
+        bubbles_all = pd.concat(bubble_dfs, ignore_index=True)
+        clusters_all = pd.concat(cluster_dfs, ignore_index=True)
+        _seep_feat_write_csvs(pred_dir, bubbles_all, clusters_all,
+                              anchor_area_m2=anchor_area_m2,
+                              cluster_radius_m=cluster_radius_m)
+
     return precision, recall, f1
 
 
@@ -212,4 +239,12 @@ if __name__ == "__main__":
     from config import configSwinUnet
     config = configSwinUnet.Configuration().validate()
     ckpt_pred_dir = os.path.join(config.results_dir, "20260428-1537_SWINxAE.weights")
-    main(pred_dir=ckpt_pred_dir, chip_dir=config.preprocessed_dir)
+    main(
+        pred_dir=ckpt_pred_dir,
+        chip_dir=config.preprocessed_dir,
+        anchor_area_m2=getattr(config, "seep_anchor_area_m2",
+                               DEFAULT_ANCHOR_AREA_M2),
+        cluster_radius_m=getattr(config, "seep_cluster_radius_m",
+                                 DEFAULT_CLUSTER_RADIUS_M),
+        write_seep_cluster_rasters=getattr(config, "write_seep_cluster_rasters", True),
+    )

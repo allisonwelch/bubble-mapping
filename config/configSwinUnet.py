@@ -180,6 +180,16 @@ class Configuration:
         self.create_polygons = True
         self.postproc_workers = 12
 
+        # --- SEEP FEATURE TABLE / ANCHOR-CONDITIONAL CLUSTERING ---
+        # Read by tools/seep_feature_table.py and tools/seep_level_eval.py.
+        # A predicted bubble with area >= seep_anchor_area_m2 is an "anchor" (always
+        # a cluster head). Non-anchor bubbles within seep_cluster_radius_m of an
+        # anchor centroid join that anchor's cluster. Others form singleton clusters.
+        # Default anchor area = pi * (25 cm)^2; provisional until Walter's threshold.
+        self.seep_anchor_area_m2 = float(np.pi * (0.25 ** 2))
+        self.seep_cluster_radius_m = 0.5
+        self.write_seep_cluster_rasters = True
+
         # Prediction outputs (for completeness with tools)
         # Attribute field in training_area_fn whose value is the .tif basename (no extension)
         # that each training area belongs to. When set, areas are matched to images by this
