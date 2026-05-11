@@ -187,7 +187,7 @@ class Configuration:
         # anchor centroid join that anchor's cluster. Others form singleton clusters.
         # Default anchor area = pi * (25 cm)^2; provisional until Walter's threshold.
         self.seep_anchor_area_m2 = float(np.pi * (0.125 ** 2))
-        self.seep_cluster_radius_m = 0.4
+        self.seep_cluster_radius_m = 0.2
         # Satellite area cap: a non-anchor bubble must be at most this large to
         # be eligible as a satellite. Set to None to disable (every non-anchor
         # eligible). Default = pi * (7.5 cm)^2 — provisional; tune from

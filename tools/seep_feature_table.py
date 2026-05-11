@@ -180,7 +180,7 @@ def build_cluster_raster(cc_lab, bubble_df):
 
 
 def _write_cluster_raster(pred_fp, raster, profile):
-    out = _aux_path(pred_fp, "_r125_seep_cluster.tif")
+    out = _aux_path(pred_fp, "_r125_r20_seep_cluster.tif")
     prof = profile.copy()
     max_val = int(raster.max()) if raster.size > 0 else 0
     dtype = "uint16" if max_val <= 65535 else "uint32"
