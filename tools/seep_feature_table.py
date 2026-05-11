@@ -32,6 +32,11 @@ from tqdm import tqdm
 # Defaults (overridable per call or via config). Anchor area = pi * (25 cm)^2.
 DEFAULT_ANCHOR_AREA_M2 = float(np.pi * (0.25 ** 2))
 DEFAULT_CLUSTER_RADIUS_M = 0.5
+# Satellite area cap: a non-anchor bubble must be at most this large to be
+# eligible as a satellite. None disables the cap (every non-anchor is eligible).
+# When set, non-anchors above the cap are forced to be singletons even if an
+# anchor is in range — guards against medium-sized bubbles getting absorbed.
+DEFAULT_SATELLITE_MAX_AREA_M2 = None
 
 _AUX_SUFFIXES = ("_prob.tif", "_epistemic.tif", "_aleatoric.tif",
                  "_smoothed.tif", "_cc.tif", "_seep_cluster.tif")
@@ -78,16 +83,29 @@ def compute_bubble_features(cc_lab, image, transform):
     ])
 
 
-def anchor_cluster(bubble_df, anchor_area_m2, cluster_radius_m):
-    """Add `is_anchor` and `cluster_id` columns per the rules above."""
+def anchor_cluster(bubble_df, anchor_area_m2, cluster_radius_m,
+                   satellite_max_area_m2=DEFAULT_SATELLITE_MAX_AREA_M2):
+    """Add `is_anchor`, `is_satellite_eligible`, and `cluster_id` columns.
+
+    Bubbles with `area_m2 >= anchor_area_m2` are anchors (cluster heads).
+    Bubbles with `area_m2 < anchor_area_m2` AND (cap is None OR
+    `area_m2 <= satellite_max_area_m2`) are satellite-eligible. Eligible
+    bubbles within `cluster_radius_m` of an anchor join that anchor's
+    cluster (nearest anchor wins). Anything else becomes its own singleton.
+    """
     df = bubble_df.copy()
     df["is_anchor"] = df["area_m2"] >= anchor_area_m2
+    cap = satellite_max_area_m2
+    if cap is None or not np.isfinite(cap):
+        df["is_satellite_eligible"] = ~df["is_anchor"]
+    else:
+        df["is_satellite_eligible"] = (~df["is_anchor"]) & (df["area_m2"] <= cap)
     df["cluster_id"] = df["bubble_id"].astype(np.int64).values
-    if not df["is_anchor"].any() or (~df["is_anchor"]).sum() == 0:
+    if not df["is_anchor"].any() or not df["is_satellite_eligible"].any():
         return df
 
     anc = df[df["is_anchor"]]
-    non = df[~df["is_anchor"]]
+    non = df[df["is_satellite_eligible"]]
     n_xy = non[["centroid_x_m", "centroid_y_m"]].values   # (N, 2)
     a_xy = anc[["centroid_x_m", "centroid_y_m"]].values   # (A, 2)
     d = np.sqrt(((n_xy[:, None, :] - a_xy[None, :, :]) ** 2).sum(axis=2))
@@ -196,6 +214,7 @@ def process_pred(pred_fp, chip_fp,
                  cc=None, image=None, transform=None, profile=None,
                  anchor_area_m2=DEFAULT_ANCHOR_AREA_M2,
                  cluster_radius_m=DEFAULT_CLUSTER_RADIUS_M,
+                 satellite_max_area_m2=DEFAULT_SATELLITE_MAX_AREA_M2,
                  write_raster=True):
     """
     Per-image extraction.
@@ -213,7 +232,8 @@ def process_pred(pred_fp, chip_fp,
         profile = _profile if profile is None else profile
 
     bubbles = compute_bubble_features(cc, image, transform)
-    bubbles = anchor_cluster(bubbles, anchor_area_m2, cluster_radius_m)
+    bubbles = anchor_cluster(bubbles, anchor_area_m2, cluster_radius_m,
+                             satellite_max_area_m2=satellite_max_area_m2)
     clusters = aggregate_clusters(bubbles)
 
     name = os.path.basename(pred_fp)
@@ -228,24 +248,37 @@ def process_pred(pred_fp, chip_fp,
 
 def write_feature_csvs(pred_dir, bubbles, clusters,
                        anchor_area_m2=DEFAULT_ANCHOR_AREA_M2,
-                       cluster_radius_m=DEFAULT_CLUSTER_RADIUS_M):
+                       cluster_radius_m=DEFAULT_CLUSTER_RADIUS_M,
+                       satellite_max_area_m2=DEFAULT_SATELLITE_MAX_AREA_M2):
     bubbles.to_csv(os.path.join(pred_dir, "seep_features_per_bubble.csv"),
                    index=False)
     clusters.to_csv(os.path.join(pred_dir, "seep_features_per_cluster.csv"),
                     index=False)
-    _print_summary(bubbles, clusters, anchor_area_m2, cluster_radius_m)
+    _print_summary(bubbles, clusters, anchor_area_m2, cluster_radius_m,
+                   satellite_max_area_m2)
 
 
-def _print_summary(bubbles, clusters, anchor_area_m2, cluster_radius_m):
+def _print_summary(bubbles, clusters, anchor_area_m2, cluster_radius_m,
+                   satellite_max_area_m2):
     n_bub = len(bubbles)
     n_anc = int(bubbles["is_anchor"].sum())
     n_clu = len(clusters)
     n_sat = int(((~bubbles["is_anchor"]) &
                  (bubbles["cluster_id"] != bubbles["bubble_id"])).sum())
     n_singleton = int(clusters["n_bubbles"].eq(1).sum())
+    # "Medium" bubbles: non-anchor, area above the satellite cap (forced singletons).
+    if "is_satellite_eligible" in bubbles.columns:
+        n_medium = int(((~bubbles["is_anchor"]) &
+                        (~bubbles["is_satellite_eligible"])).sum())
+    else:
+        n_medium = 0
+    cap_str = (f"{satellite_max_area_m2:.4f}"
+               if satellite_max_area_m2 is not None
+               and np.isfinite(satellite_max_area_m2) else "off")
     print(f"\nSEEP-FEATURE: anchor_area_m2={anchor_area_m2:.4f}  "
-          f"cluster_radius_m={cluster_radius_m:.2f}")
-    print(f"  n_bubbles={n_bub}  n_anchors={n_anc}  "
+          f"cluster_radius_m={cluster_radius_m:.2f}  "
+          f"satellite_max_area_m2={cap_str}")
+    print(f"  n_bubbles={n_bub}  n_anchors={n_anc}  n_medium={n_medium}  "
           f"n_clusters={n_clu}  n_satellites={n_sat}  "
           f"n_singletons={n_singleton}")
     hist = clusters["n_bubbles"].value_counts().sort_index()
@@ -257,6 +290,7 @@ def _print_summary(bubbles, clusters, anchor_area_m2, cluster_radius_m):
 def process_dir(pred_dir, chip_dir,
                 anchor_area_m2=DEFAULT_ANCHOR_AREA_M2,
                 cluster_radius_m=DEFAULT_CLUSTER_RADIUS_M,
+                satellite_max_area_m2=DEFAULT_SATELLITE_MAX_AREA_M2,
                 write_rasters=True):
     pred_fps = [
         fp for fp in sorted(glob.glob(os.path.join(pred_dir, "*.tif")))
@@ -271,6 +305,7 @@ def process_dir(pred_dir, chip_dir,
             pred_fp, chip_fp,
             anchor_area_m2=anchor_area_m2,
             cluster_radius_m=cluster_radius_m,
+            satellite_max_area_m2=satellite_max_area_m2,
             write_raster=write_rasters,
         )
         bubble_dfs.append(b)
@@ -283,7 +318,8 @@ def process_dir(pred_dir, chip_dir,
     clusters = pd.concat(cluster_dfs, ignore_index=True)
     write_feature_csvs(pred_dir, bubbles, clusters,
                        anchor_area_m2=anchor_area_m2,
-                       cluster_radius_m=cluster_radius_m)
+                       cluster_radius_m=cluster_radius_m,
+                       satellite_max_area_m2=satellite_max_area_m2)
     return bubbles, clusters
 
 
@@ -300,5 +336,7 @@ if __name__ == "__main__":
                                DEFAULT_ANCHOR_AREA_M2),
         cluster_radius_m=getattr(config, "seep_cluster_radius_m",
                                  DEFAULT_CLUSTER_RADIUS_M),
+        satellite_max_area_m2=getattr(config, "seep_satellite_max_area_m2",
+                                      DEFAULT_SATELLITE_MAX_AREA_M2),
         write_rasters=getattr(config, "write_seewp_cluster_rasters", True),
     )

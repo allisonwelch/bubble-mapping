@@ -13,6 +13,7 @@ from seep_feature_table import (
     write_feature_csvs as _seep_feat_write_csvs,
     DEFAULT_ANCHOR_AREA_M2,
     DEFAULT_CLUSTER_RADIUS_M,
+    DEFAULT_SATELLITE_MAX_AREA_M2,
 )
 
 # 1. Locate paired (prediction, ground-truth) test images.
@@ -122,6 +123,7 @@ def paired_feature_correlation(matches, pred_feats, gt_feats):
 def main(pred_dir, chip_dir,
          anchor_area_m2=DEFAULT_ANCHOR_AREA_M2,
          cluster_radius_m=DEFAULT_CLUSTER_RADIUS_M,
+         satellite_max_area_m2=DEFAULT_SATELLITE_MAX_AREA_M2,
          write_seep_cluster_rasters=True):
     rows = []
     pair_rows = []
@@ -147,6 +149,7 @@ def main(pred_dir, chip_dir,
             cc=pl, image=image, transform=transform, profile=pred_profile,
             anchor_area_m2=anchor_area_m2,
             cluster_radius_m=cluster_radius_m,
+            satellite_max_area_m2=satellite_max_area_m2,
             write_raster=write_seep_cluster_rasters,
         )
         bubble_dfs.append(b_df)
@@ -228,7 +231,8 @@ def main(pred_dir, chip_dir,
         clusters_all = pd.concat(cluster_dfs, ignore_index=True)
         _seep_feat_write_csvs(pred_dir, bubbles_all, clusters_all,
                               anchor_area_m2=anchor_area_m2,
-                              cluster_radius_m=cluster_radius_m)
+                              cluster_radius_m=cluster_radius_m,
+                              satellite_max_area_m2=satellite_max_area_m2)
 
     return precision, recall, f1
 
@@ -246,5 +250,7 @@ if __name__ == "__main__":
                                DEFAULT_ANCHOR_AREA_M2),
         cluster_radius_m=getattr(config, "seep_cluster_radius_m",
                                  DEFAULT_CLUSTER_RADIUS_M),
+        satellite_max_area_m2=getattr(config, "seep_satellite_max_area_m2",
+                                      DEFAULT_SATELLITE_MAX_AREA_M2),
         write_seep_cluster_rasters=getattr(config, "write_seep_cluster_rasters", True),
     )
