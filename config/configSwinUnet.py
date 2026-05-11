@@ -192,7 +192,7 @@ class Configuration:
         # be eligible as a satellite. Set to None to disable (every non-anchor
         # eligible). Default = pi * (7.5 cm)^2 — provisional; tune from
         # cluster-size histogram and n_medium count in the script printout.
-        self.seep_satellite_max_area_m2 = float(np.pi * (0.075 ** 2))
+        self.seep_satellite_max_area_m2 = float(np.pi * (0.15 ** 2))
         self.write_seep_cluster_rasters = True
 
         # Prediction outputs (for completeness with tools)
