@@ -235,7 +235,7 @@ class Configuration:
         self.snow_v_thresh = 0.85
         self.snow_s_thresh = 0.15
         self.snow_mask_dilate_px = 0
-        self.snow_cc_drop_frac = 0.5
+        self.snow_cc_drop_frac = 0.3
         self.write_snow_rasters = True
 
         # All artifacts from a tools/seep_level_eval.py run (per-chip rasters,
