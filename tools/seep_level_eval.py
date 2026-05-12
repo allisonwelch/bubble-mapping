@@ -74,7 +74,8 @@ def _drop_snow_ccs(pred, snow, drop_frac):
 
 
 def load_pair(pred_tif, chip_tif,
-              snow_v_thresh=None, snow_s_thresh=None, snow_dilate_px=0,
+              snow_v_thresh=None, snow_s_thresh=None,
+              snow_close_px=0, snow_dilate_px=0,
               snow_cc_drop_frac=0.5):
     """Read prediction + chip, smooth pred, and (optionally) apply the
     CC-level snow filter: drop entire predicted CCs whose pixel-overlap with
@@ -106,6 +107,7 @@ def load_pair(pred_tif, chip_tif,
     if snow_v_thresh is not None and snow_s_thresh is not None:
         snow = snow_mask_hsv(image, v_thresh=snow_v_thresh,
                              s_thresh=snow_s_thresh,
+                             close_px=snow_close_px,
                              dilate_px=snow_dilate_px)
         if (snow is not None and snow_cc_drop_frac is not None
                 and float(snow_cc_drop_frac) > 0):
@@ -278,6 +280,7 @@ def main(pred_dir, chip_dir,
          snow_mask_enabled=False,
          snow_v_thresh=0.85,
          snow_s_thresh=0.15,
+         snow_close_px=0,
          snow_dilate_px=0,
          snow_cc_drop_frac=0.5,
          write_snow_rasters=True,
@@ -319,6 +322,7 @@ def main(pred_dir, chip_dir,
         pred, gt, image, transform, pred_profile, snow, n_dropped = load_pair(
             pred_fp, chip_fp,
             snow_v_thresh=sv, snow_s_thresh=ss,
+            snow_close_px=snow_close_px,
             snow_dilate_px=snow_dilate_px,
             snow_cc_drop_frac=snow_cc_drop_frac if snow_mask_enabled else 0,
         )
@@ -454,7 +458,8 @@ def main(pred_dir, chip_dir,
     print(df)
     if snow_mask_enabled:
         print(f"\nSNOW MASK: v>={snow_v_thresh:.2f} s<={snow_s_thresh:.2f} "
-              f"dilate={snow_dilate_px}px  → {snow_pct:.2f}% of pixels masked")
+              f"close={snow_close_px}px dilate={snow_dilate_px}px  → "
+              f"{snow_pct:.2f}% of pixels masked")
         print(f"  CC-level filter: drop_frac>{snow_cc_drop_frac:.2f}  → "
               f"{snow_ccs_dropped_total} CCs dropped across {len(df)} chips")
     print(f"\nBUBBLE-LEVEL (CC↔CC, fragmentation diagnostic):")
@@ -503,6 +508,7 @@ def main(pred_dir, chip_dir,
         "snow_mask_enabled": bool(snow_mask_enabled),
         "snow_v_thresh": snow_v_thresh if snow_mask_enabled else float("nan"),
         "snow_s_thresh": snow_s_thresh if snow_mask_enabled else float("nan"),
+        "snow_close_px": int(snow_close_px) if snow_mask_enabled else 0,
         "snow_dilate_px": int(snow_dilate_px) if snow_mask_enabled else 0,
         "snow_pct_masked": snow_pct if snow_mask_enabled else float("nan"),
         "snow_cc_drop_frac": (float(snow_cc_drop_frac) if snow_mask_enabled
@@ -581,6 +587,7 @@ if __name__ == "__main__":
         snow_mask_enabled=getattr(config, "snow_mask_enabled", False),
         snow_v_thresh=getattr(config, "snow_v_thresh", 0.85),
         snow_s_thresh=getattr(config, "snow_s_thresh", 0.15),
+        snow_close_px=getattr(config, "snow_mask_close_px", 0),
         snow_dilate_px=getattr(config, "snow_mask_dilate_px", 0),
         snow_cc_drop_frac=getattr(config, "snow_cc_drop_frac", 0.5),
         write_snow_rasters=getattr(config, "write_snow_rasters", True),

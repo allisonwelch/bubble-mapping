@@ -231,9 +231,18 @@ class Configuration:
         #   0.7 = conservative (drop only CCs that are almost fully snow)
         # Set to 0 to disable the CC filter while still writing _snow.tif
         # rasters for diagnostic overlay.
+        # snow_mask_close_px: morphological closing (binary_closing with
+        # disk(r)) on the snow mask BEFORE dilation. Fills holes in the mask
+        # smaller than the disk — designed to catch dark features embedded
+        # in snow (animal tracks, mud spots, shadowed patches) that the V/S
+        # threshold rejects on a per-pixel basis but that sit inside obvious
+        # snow regions. 5px fills narrow tracks; 10–15px fills larger
+        # embedded features at the cost of bridging nearby snow patches.
+        # Set to 0 to disable.
         self.snow_mask_enabled = True
-        self.snow_v_thresh = 0.85
+        self.snow_v_thresh = 0.75
         self.snow_s_thresh = 0.15
+        self.snow_mask_close_px = 5
         self.snow_mask_dilate_px = 0
         self.snow_cc_drop_frac = 0.3
         self.write_snow_rasters = True

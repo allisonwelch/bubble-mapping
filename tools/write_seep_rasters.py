@@ -25,10 +25,18 @@ def smooth_pred(mask, radius=1):
     return m.astype(np.uint8)
 
 
-def snow_mask_hsv(image, v_thresh=0.85, s_thresh=0.15, dilate_px=0):
+def snow_mask_hsv(image, v_thresh=0.85, s_thresh=0.15, close_px=0, dilate_px=0):
     """Boolean snow mask from RGB image: high V (brightness) AND low S
-    (saturation) in HSV. Optionally dilate by `dilate_px` to grow the mask
-    into snow-fringe pixels.
+    (saturation) in HSV. Optional morphological operations applied after the
+    pixel threshold, in this order:
+      1. `close_px` — binary_closing with disk(close_px). Fills holes in the
+         mask smaller than the structuring element. Targets dark features
+         embedded in snow (e.g. animal tracks, mud spots, small shadowed
+         patches) — the track pixels themselves fail V>=v_thresh but they
+         sit inside a snow region, so closing fills them in. Non-snow areas
+         are unaffected (no holes to fill).
+      2. `dilate_px` — binary_dilation with disk(dilate_px). Grows the mask
+         outward into snow-fringe pixels.
 
     image: (H, W, C) with the first 3 channels treated as R, G, B. Integer
     dtypes are normalized by their dtype max; float inputs assumed already in
@@ -50,6 +58,8 @@ def snow_mask_hsv(image, v_thresh=0.85, s_thresh=0.15, dilate_px=0):
     v = cmax
     s = np.where(cmax > 1e-9, (cmax - cmin) / np.maximum(cmax, 1e-9), 0.0)
     mask = (v >= float(v_thresh)) & (s <= float(s_thresh))
+    if close_px and int(close_px) > 0:
+        mask = binary_closing(mask, disk(int(close_px)))
     if dilate_px and int(dilate_px) > 0:
         mask = binary_dilation(mask, disk(int(dilate_px)))
     return mask
