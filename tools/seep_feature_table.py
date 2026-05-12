@@ -24,12 +24,21 @@ import glob
 import numpy as np
 import pandas as pd
 import rasterio
+from rasterio.features import shapes as rio_shapes
 from rasterio.transform import xy as rio_xy
 from scipy.spatial import cKDTree
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
+from shapely.geometry import shape as shp_shape
 from skimage.measure import regionprops
 from tqdm import tqdm
+
+try:
+    import geopandas as gpd
+    _HAS_GPD = True
+except ImportError:
+    gpd = None
+    _HAS_GPD = False
 
 
 # Defaults (overridable per call or via config). Anchor area = pi * (25 cm)^2.
@@ -61,7 +70,14 @@ def _aux_path(pred_fp, suffix):
 
 
 def compute_bubble_features(cc_lab, image, transform):
-    """One row per CC. Morphological + RGB-brightness features."""
+    """One row per CC. Morphological + RGB-brightness features.
+
+    Adds `solidity` (area / convex-hull area) and `eccentricity` (from the
+    fitted ellipse; both come straight from skimage.regionprops). Both are
+    more robust to boundary-roughness noise than circularity — see
+    CLAUDE.md 2026-04-28 for why we recommend them for downstream
+    classification work.
+    """
     pix_m = abs(transform.a)
     has_rgb = image.ndim == 3 and image.shape[2] >= 3
     rows = []
@@ -87,11 +103,14 @@ def compute_bubble_features(cc_lab, image, transform):
             "area_m2": float(ar_m2),
             "perim_m": float(per_m),
             "circularity": float(circ),
+            "solidity": float(p.solidity),
+            "eccentricity": float(p.eccentricity),
             "mean_R": mR, "mean_G": mG, "mean_B": mB,
         })
     return pd.DataFrame(rows, columns=[
         "bubble_id", "centroid_x_m", "centroid_y_m",
         "area_m2", "perim_m", "circularity",
+        "solidity", "eccentricity",
         "mean_R", "mean_G", "mean_B",
     ])
 
@@ -237,6 +256,10 @@ def aggregate_clusters(bubble_df):
         mG = float((grp["mean_G"].values * w).sum() / wsum)
         mB = float((grp["mean_B"].values * w).sum() / wsum)
         mcirc = float((grp["circularity"].values * w).sum() / wsum)
+        msol = float((grp["solidity"].values * w).sum() / wsum) \
+            if "solidity" in grp.columns else np.nan
+        mecc = float((grp["eccentricity"].values * w).sum() / wsum) \
+            if "eccentricity" in grp.columns else np.nan
 
         rows.append({
             "cluster_id": int(cid),
@@ -253,6 +276,8 @@ def aggregate_clusters(bubble_df):
             "centroid_x_m": cx, "centroid_y_m": cy,
             "mean_R": mR, "mean_G": mG, "mean_B": mB,
             "mean_circularity_weighted": mcirc,
+            "mean_solidity_weighted": msol,
+            "mean_eccentricity_weighted": mecc,
         })
     return pd.DataFrame(rows)
 
@@ -265,6 +290,80 @@ def build_cluster_raster(cc_lab, bubble_df):
                         bubble_df["cluster_id"].values.astype(int)):
         lut[bid] = cid
     return lut[cc_lab]
+
+
+def polygonize_labels(label_array, transform, crs):
+    """Polygonize a uint label array (0=background). Same-label pieces are
+    dissolved into a single (Multi)Polygon per id."""
+    if not _HAS_GPD:
+        raise RuntimeError("geopandas is required for polygonization")
+    arr = label_array.astype(np.int32)
+    mask = (arr > 0).astype(np.uint8)
+    geoms, ids = [], []
+    for geom, val in rio_shapes(arr, mask=mask, transform=transform):
+        if int(val) == 0:
+            continue
+        geoms.append(shp_shape(geom))
+        ids.append(int(val))
+    if not geoms:
+        return gpd.GeoDataFrame({"id": [], "geometry": []}, crs=crs, geometry="geometry")
+    gdf = gpd.GeoDataFrame({"id": ids, "geometry": geoms}, crs=crs)
+    if gdf["id"].duplicated().any():
+        gdf = gdf.dissolve(by="id", as_index=False)
+    return gdf
+
+
+def labels_to_seep_gdf(label_array, image, transform, crs, id_name="seep_id"):
+    """End-to-end: labels → polygons + features → GeoDataFrame (one row per
+    label, with shapely geometry, area/perim/circ/solidity/ecc, mean_R/G/B).
+    Use for both GT polygons (label = polygon CC) and pred cluster rasters."""
+    if not _HAS_GPD:
+        raise RuntimeError("geopandas is required for labels_to_seep_gdf")
+    features = compute_bubble_features(label_array, image, transform)
+    features = features.rename(columns={"bubble_id": id_name})
+    gdf = polygonize_labels(label_array, transform, crs)
+    gdf = gdf.rename(columns={"id": id_name})
+    return gdf.merge(features, on=id_name, how="left")
+
+
+def build_pred_seeps_gdf(cluster_raster, clusters_df, image, transform, crs):
+    """Cluster-level GeoDataFrame for one chip's predictions. Merges:
+      - polygonized cluster raster (one (Multi)Polygon per cluster_id)
+      - per-cluster physical features (computed via regionprops on the
+        cluster raster — area, perim, circ, solidity, ecc, mean_R/G/B)
+      - per-cluster structure features (n_bubbles, has_anchor, anchor_area_m2,
+        std_area_m2, area_ratio_max_to_mean, ...) from aggregate_clusters
+    Returns a GeoDataFrame; empty if the chip had no bubbles."""
+    if not _HAS_GPD:
+        raise RuntimeError("geopandas is required for build_pred_seeps_gdf")
+    if cluster_raster.size == 0 or int(cluster_raster.max()) == 0:
+        return gpd.GeoDataFrame(
+            {"cluster_id": [], "geometry": []}, crs=crs, geometry="geometry"
+        )
+    gdf = labels_to_seep_gdf(cluster_raster, image, transform, crs,
+                             id_name="cluster_id")
+    structure_cols = [c for c in clusters_df.columns
+                      if c not in ("image", "cluster_id",
+                                   "centroid_x_m", "centroid_y_m",
+                                   "mean_R", "mean_G", "mean_B")]
+    sub = clusters_df[["cluster_id"] + structure_cols].copy()
+    return gdf.merge(sub, on="cluster_id", how="left")
+
+
+def write_seeps_gpkg(out_fp, gdfs, class_column=False):
+    """Concatenate per-chip GeoDataFrames and write to a single GPKG.
+    Adds an empty `class` text column when class_column=True (used for GT)."""
+    if not _HAS_GPD:
+        raise RuntimeError("geopandas is required for write_seeps_gpkg")
+    valid = [g for g in gdfs if g is not None and not g.empty]
+    if not valid:
+        return None
+    out = pd.concat(valid, ignore_index=True)
+    out = gpd.GeoDataFrame(out, geometry="geometry", crs=valid[0].crs)
+    if class_column and "class" not in out.columns:
+        out["class"] = ""
+    out.to_file(out_fp, driver="GPKG")
+    return out_fp
 
 
 def _write_cluster_raster(pred_fp, raster, profile):
@@ -306,14 +405,18 @@ def process_pred(pred_fp, chip_fp,
                  lonely_cluster_radius_m=DEFAULT_LONELY_CLUSTER_RADIUS_M,
                  lonely_halo_radius_m=DEFAULT_LONELY_HALO_RADIUS_M,
                  lonely_max_halo_neighbors=DEFAULT_LONELY_MAX_HALO_NEIGHBORS,
-                 write_raster=True):
+                 write_raster=True, polygonize=True):
     """
     Per-image extraction.
 
     Pass pre-computed cc/image/transform/profile to skip disk reads (used by
     seep_level_eval.py during its main loop). Otherwise reads _cc.tif and the
-    chip from disk. Returns (bubbles_df, clusters_df), both prefixed with an
-    'image' column.
+    chip from disk.
+
+    Returns (bubbles_df, clusters_df, pred_seeps_gdf). All three are prefixed
+    with an 'image' column. pred_seeps_gdf is None when polygonize=False, when
+    geopandas is unavailable, when profile has no CRS, or when the chip has
+    no bubbles.
     """
     if cc is None or image is None or transform is None or profile is None:
         _cc, _image, _transform, _profile = _load_inputs(pred_fp, chip_fp)
@@ -335,10 +438,22 @@ def process_pred(pred_fp, chip_fp,
     bubbles.insert(0, "image", name)
     clusters.insert(0, "image", name)
 
-    if write_raster and len(bubbles) > 0:
+    raster = None
+    if (write_raster or polygonize) and len(bubbles) > 0:
         raster = build_cluster_raster(cc, bubbles)
-        _write_cluster_raster(pred_fp, raster, profile)
-    return bubbles, clusters
+        if write_raster:
+            _write_cluster_raster(pred_fp, raster, profile)
+
+    pred_seeps_gdf = None
+    if polygonize and _HAS_GPD and raster is not None:
+        crs = profile.get("crs")
+        if crs is not None:
+            pred_seeps_gdf = build_pred_seeps_gdf(
+                raster, clusters, image, transform, crs
+            )
+            if not pred_seeps_gdf.empty:
+                pred_seeps_gdf.insert(0, "image", name)
+    return bubbles, clusters, pred_seeps_gdf
 
 
 def write_feature_csvs(pred_dir, bubbles, clusters,
@@ -418,17 +533,17 @@ def process_dir(pred_dir, chip_dir,
                 lonely_cluster_radius_m=DEFAULT_LONELY_CLUSTER_RADIUS_M,
                 lonely_halo_radius_m=DEFAULT_LONELY_HALO_RADIUS_M,
                 lonely_max_halo_neighbors=DEFAULT_LONELY_MAX_HALO_NEIGHBORS,
-                write_rasters=True):
+                write_rasters=True, write_pred_seeps_gpkg=True):
     pred_fps = [
         fp for fp in sorted(glob.glob(os.path.join(pred_dir, "*.tif")))
         if not fp.endswith(_AUX_SUFFIXES)
     ]
-    bubble_dfs, cluster_dfs = [], []
+    bubble_dfs, cluster_dfs, pred_seeps_gdfs = [], [], []
     for pred_fp in tqdm(pred_fps, desc="Seep features"):
         chip_fp = os.path.join(chip_dir, os.path.basename(pred_fp))
         if not os.path.exists(chip_fp):
             continue
-        b, c = process_pred(
+        b, c, ps_gdf = process_pred(
             pred_fp, chip_fp,
             anchor_area_m2=anchor_area_m2,
             cluster_radius_m=cluster_radius_m,
@@ -437,9 +552,12 @@ def process_dir(pred_dir, chip_dir,
             lonely_halo_radius_m=lonely_halo_radius_m,
             lonely_max_halo_neighbors=lonely_max_halo_neighbors,
             write_raster=write_rasters,
+            polygonize=write_pred_seeps_gpkg,
         )
         bubble_dfs.append(b)
         cluster_dfs.append(c)
+        if ps_gdf is not None:
+            pred_seeps_gdfs.append(ps_gdf)
     if not bubble_dfs:
         raise RuntimeError(
             f"No predictions processed.\n  pred_dir={pred_dir}\n  chip_dir={chip_dir}"
@@ -453,6 +571,10 @@ def process_dir(pred_dir, chip_dir,
                        lonely_cluster_radius_m=lonely_cluster_radius_m,
                        lonely_halo_radius_m=lonely_halo_radius_m,
                        lonely_max_halo_neighbors=lonely_max_halo_neighbors)
+    if write_pred_seeps_gpkg and pred_seeps_gdfs:
+        out_fp = os.path.join(pred_dir, "pred_seeps.gpkg")
+        write_seeps_gpkg(out_fp, pred_seeps_gdfs, class_column=False)
+        print(f"  wrote {out_fp}")
     return bubbles, clusters
 
 

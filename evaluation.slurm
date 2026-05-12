@@ -16,4 +16,4 @@ eval "$(conda shell.bash hook)"
 conda activate venv-bubble
 
 cd ~/bubble-mapping
-python tools/seep_feature_table.py
+python tools/seep_level_eval.py
