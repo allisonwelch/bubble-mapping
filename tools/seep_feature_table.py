@@ -61,7 +61,8 @@ DEFAULT_LONELY_HALO_RADIUS_M = 1.5
 DEFAULT_LONELY_MAX_HALO_NEIGHBORS = 5
 
 _AUX_SUFFIXES = ("_prob.tif", "_epistemic.tif", "_aleatoric.tif",
-                 "_smoothed.tif", "_cc.tif", "_seep_cluster.tif")
+                 "_smoothed.tif", "_cc.tif", "_seep_cluster.tif",
+                 "_snow.tif")
 
 
 def _aux_path(pred_fp, suffix):
@@ -366,8 +367,13 @@ def write_seeps_gpkg(out_fp, gdfs, class_column=False):
     return out_fp
 
 
-def _write_cluster_raster(pred_fp, raster, profile):
-    out = _aux_path(pred_fp, "_r125_r45_r10_lonely_seep_cluster.tif")
+def _write_cluster_raster(pred_fp, raster, profile, out_dir=None):
+    if out_dir is None:
+        out = _aux_path(pred_fp, "_r125_r45_r10_lonely_seep_cluster.tif")
+    else:
+        stem = os.path.splitext(os.path.basename(pred_fp))[0]
+        out = os.path.join(out_dir,
+                           f"{stem}_r125_r45_r10_lonely_seep_cluster.tif")
     prof = profile.copy()
     max_val = int(raster.max()) if raster.size > 0 else 0
     dtype = "uint16" if max_val <= 65535 else "uint32"
@@ -405,7 +411,7 @@ def process_pred(pred_fp, chip_fp,
                  lonely_cluster_radius_m=DEFAULT_LONELY_CLUSTER_RADIUS_M,
                  lonely_halo_radius_m=DEFAULT_LONELY_HALO_RADIUS_M,
                  lonely_max_halo_neighbors=DEFAULT_LONELY_MAX_HALO_NEIGHBORS,
-                 write_raster=True, polygonize=True):
+                 write_raster=True, polygonize=True, out_dir=None):
     """
     Per-image extraction.
 
@@ -442,7 +448,7 @@ def process_pred(pred_fp, chip_fp,
     if (write_raster or polygonize) and len(bubbles) > 0:
         raster = build_cluster_raster(cc, bubbles)
         if write_raster:
-            _write_cluster_raster(pred_fp, raster, profile)
+            _write_cluster_raster(pred_fp, raster, profile, out_dir=out_dir)
 
     pred_seeps_gdf = None
     if polygonize and _HAS_GPD and raster is not None:

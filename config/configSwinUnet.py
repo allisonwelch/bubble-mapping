@@ -208,6 +208,30 @@ class Configuration:
         self.seep_lonely_max_halo_neighbors = 5
         self.write_seep_cluster_rasters = True
 
+        # --- HSV SNOW MASK (predictions only; GT is never masked) ---
+        # Read by tools/seep_level_eval.py. Snow heuristic per pixel:
+        #   V (= max(R,G,B) / dtype_max)            >= snow_v_thresh
+        #   S (= (max-min) / max, == 0 for grayscale) <= snow_s_thresh
+        # When `snow_mask_enabled`, the boolean mask is zeroed out of the
+        # smoothed prediction BEFORE CC labeling — so cluster/seep metrics
+        # downstream see fewer snow-driven FPs. A {stem}_snow.tif is also
+        # written per chip when write_snow_rasters=True so the mask can be
+        # overlaid on the chip in QGIS to verify it isn't eating real bubbles.
+        # Tune by toggling snow_mask_enabled and inspecting the rasters; the
+        # cluster_f1 delta in seep_level_summary.csv tells you the metric impact.
+        self.snow_mask_enabled = True
+        self.snow_v_thresh = 0.85
+        self.snow_s_thresh = 0.15
+        self.snow_mask_dilate_px = 0
+        self.write_snow_rasters = True
+
+        # All artifacts from a tools/seep_level_eval.py run (per-chip rasters,
+        # CSVs, GPKGs) land in {pred_dir}/{seep_eval_out_subdir}/ when this is
+        # set. Lets A/B runs (e.g. snow-mask on vs off) write to parallel
+        # subdirectories without overwriting the canonical baseline artifacts
+        # directly in pred_dir. Set to None to write to pred_dir as before.
+        self.seep_eval_out_subdir = "20260512_snow_mask"
+
         # Prediction outputs (for completeness with tools)
         # Attribute field in training_area_fn whose value is the .tif basename (no extension)
         # that each training area belongs to. When set, areas are matched to images by this

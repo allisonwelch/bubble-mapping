@@ -7,7 +7,12 @@ import pandas as pd
 from tqdm import tqdm
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from write_seep_rasters import smooth_pred, write_rasters_for_pred
+from write_seep_rasters import (
+    smooth_pred,
+    snow_mask_hsv,
+    write_rasters_for_pred,
+    write_snow_raster,
+)
 from seep_feature_table import (
     process_pred as _seep_feat_process,
     write_feature_csvs as _seep_feat_write_csvs,
@@ -33,7 +38,12 @@ except ImportError:
 #    preprocessed chip in config.preprocessed_dir (this mirrors how
 #    evaluation.py reads frame.annotations — see evaluation.py:1066-1071).
 
-def load_pair(pred_tif, chip_tif):
+def load_pair(pred_tif, chip_tif,
+              snow_v_thresh=None, snow_s_thresh=None, snow_dilate_px=0):
+    """Read prediction + chip, smooth pred, and (optionally) zero pred where
+    HSV snow mask is hot. Returns (pred, gt_bin, image, transform, profile,
+    snow). `snow` is None unless snow_v_thresh and snow_s_thresh are both set.
+    """
     with rasterio.open(pred_tif) as src:
         pred = smooth_pred(src.read(1))
         transform = src.transform        # for physical sizes
@@ -49,7 +59,16 @@ def load_pair(pred_tif, chip_tif):
     if gt.max() > 1.5:
         gt = (gt / 255.0)
     gt_bin = (gt >= 0.5).astype(np.uint8)
-    return pred, gt_bin, image, transform, pred_profile
+
+    snow = None
+    if snow_v_thresh is not None and snow_s_thresh is not None:
+        snow = snow_mask_hsv(image, v_thresh=snow_v_thresh,
+                             s_thresh=snow_s_thresh,
+                             dilate_px=snow_dilate_px)
+        if snow is not None:
+            pred = pred.copy()
+            pred[snow] = 0
+    return pred, gt_bin, image, transform, pred_profile, snow
 
 # 2. Connected components and centroids.
 def cc_with_props(binary_mask):
@@ -214,30 +233,62 @@ def main(pred_dir, chip_dir,
          lonely_cluster_radius_m=DEFAULT_LONELY_CLUSTER_RADIUS_M,
          lonely_halo_radius_m=DEFAULT_LONELY_HALO_RADIUS_M,
          lonely_max_halo_neighbors=DEFAULT_LONELY_MAX_HALO_NEIGHBORS,
-         write_seep_cluster_rasters=True):
+         snow_mask_enabled=False,
+         snow_v_thresh=0.85,
+         snow_s_thresh=0.15,
+         snow_dilate_px=0,
+         write_snow_rasters=True,
+         write_seep_cluster_rasters=True,
+         out_dir=None):
+    """Run cluster-level seep evaluation.
+
+    `out_dir`: where per-chip rasters, CSVs and GPKGs from this run are
+    written. Defaults to `pred_dir` (writes alongside the predictions).
+    Pass a subdirectory path to keep this run's outputs separate from the
+    canonical artifacts in `pred_dir` (useful for A/B comparison runs).
+    Directory is created if missing.
+    """
+    if out_dir is None:
+        out_dir = pred_dir
+    os.makedirs(out_dir, exist_ok=True)
     rows = []
     pair_rows = []
     bubble_dfs, cluster_dfs = [], []
     pred_seeps_gdfs, gt_seeps_gdfs = [], []
     cluster_rows = []
     cluster_pair_rows = []
+    snow_px_total = 0
+    img_px_total = 0
     pred_fps = [
         fp for fp in sorted(glob.glob(os.path.join(pred_dir, "*.tif")))
         if not fp.endswith(("_prob.tif", "_epistemic.tif", "_aleatoric.tif",
-                            "_smoothed.tif", "_cc.tif", "_seep_cluster.tif"))
+                            "_smoothed.tif", "_cc.tif", "_seep_cluster.tif",
+                            "_snow.tif"))
         and "_r125_r45_r10_lonely_seep_cluster" not in fp
     ]
+    sv = snow_v_thresh if snow_mask_enabled else None
+    ss = snow_s_thresh if snow_mask_enabled else None
     for pred_fp in tqdm(pred_fps, desc="Seep-level eval"):
         chip_fp = os.path.join(chip_dir, os.path.basename(pred_fp))
         if not os.path.exists(chip_fp):
             continue
-        pred, gt, image, transform, pred_profile = load_pair(pred_fp, chip_fp)
+        pred, gt, image, transform, pred_profile, snow = load_pair(
+            pred_fp, chip_fp,
+            snow_v_thresh=sv, snow_s_thresh=ss,
+            snow_dilate_px=snow_dilate_px,
+        )
         crs = pred_profile.get("crs")
         pl, pp = cc_with_props(pred)
         gl, gp = cc_with_props(gt)
         matches, fn_ids, fp_ids = match_components(pl, pp, gl, gp)
 
-        write_rasters_for_pred(pred_fp, smoothed=pred, cc=pl, profile=pred_profile)
+        write_rasters_for_pred(pred_fp, smoothed=pred, cc=pl,
+                               profile=pred_profile, out_dir=out_dir)
+        if snow is not None:
+            snow_px_total += int(snow.sum())
+            img_px_total += int(snow.size)
+            if write_snow_rasters:
+                write_snow_raster(pred_fp, snow, pred_profile, out_dir=out_dir)
 
         b_df, c_df, pred_seeps_gdf = _seep_feat_process(
             pred_fp, chip_fp,
@@ -250,6 +301,7 @@ def main(pred_dir, chip_dir,
             lonely_max_halo_neighbors=lonely_max_halo_neighbors,
             write_raster=write_seep_cluster_rasters,
             polygonize=_HAS_GPD and crs is not None,
+            out_dir=out_dir,
         )
         bubble_dfs.append(b_df)
         cluster_dfs.append(c_df)
@@ -351,15 +403,20 @@ def main(pred_dir, chip_dir,
         else:
             global_r[k] = float("nan")
 
+    snow_pct = (100.0 * snow_px_total / img_px_total) if img_px_total else 0.0
+
     print(df)
+    if snow_mask_enabled:
+        print(f"\nSNOW MASK: v>={snow_v_thresh:.2f} s<={snow_s_thresh:.2f} "
+              f"dilate={snow_dilate_px}px  → {snow_pct:.2f}% of pixels masked")
     print(f"\nBUBBLE-LEVEL (CC↔CC, fragmentation diagnostic):")
     print(f"  precision={precision:.3f} recall={recall:.3f} F1={f1:.3f}")
     print(f"  FEATURE r (n={len(pairs_df)}): "
           f"area={global_r['area_m2']:.3f} perim={global_r['perim_m']:.3f} "
           f"circ={global_r['circularity']:.3f}")
 
-    df.to_csv(os.path.join(pred_dir, "seep_level_per_image.csv"), index=False)
-    pairs_df.to_csv(os.path.join(pred_dir, "seep_level_pairs.csv"), index=False)
+    df.to_csv(os.path.join(out_dir, "seep_level_per_image.csv"), index=False)
+    pairs_df.to_csv(os.path.join(out_dir, "seep_level_pairs.csv"), index=False)
 
     # Cluster-level (canonical seep) metrics.
     c_precision = c_recall = c_f1 = float("nan")
@@ -377,9 +434,9 @@ def main(pred_dir, chip_dir,
         c_f1        = 2 * c_precision * c_recall / max(1e-6, c_precision + c_recall)
         cluster_global_r = _cluster_pair_corr(c_pairs_df)
         n_cluster_pairs = len(c_pairs_df)
-        cdf.to_csv(os.path.join(pred_dir, "seep_level_per_image_cluster.csv"),
+        cdf.to_csv(os.path.join(out_dir, "seep_level_per_image_cluster.csv"),
                    index=False)
-        c_pairs_df.to_csv(os.path.join(pred_dir, "seep_level_pairs_cluster.csv"),
+        c_pairs_df.to_csv(os.path.join(out_dir, "seep_level_pairs_cluster.csv"),
                           index=False)
         print(f"\nCLUSTER-LEVEL (pred cluster ↔ GT polygon, canonical seep F1):")
         print(f"  precision={c_precision:.3f} recall={c_recall:.3f} F1={c_f1:.3f}")
@@ -395,6 +452,11 @@ def main(pred_dir, chip_dir,
 
     pd.DataFrame([{
         "n_images": len(df), "n_pairs": len(pairs_df),
+        "snow_mask_enabled": bool(snow_mask_enabled),
+        "snow_v_thresh": snow_v_thresh if snow_mask_enabled else float("nan"),
+        "snow_s_thresh": snow_s_thresh if snow_mask_enabled else float("nan"),
+        "snow_dilate_px": int(snow_dilate_px) if snow_mask_enabled else 0,
+        "snow_pct_masked": snow_pct if snow_mask_enabled else float("nan"),
         "tp": int(tp), "fn": int(fn), "fp": int(fp),
         "precision": precision, "recall": recall, "f1": f1,
         "r_area_m2": global_r["area_m2"],
@@ -413,12 +475,12 @@ def main(pred_dir, chip_dir,
         "cluster_r_mean_R":      cluster_global_r["mean_R"],
         "cluster_r_mean_G":      cluster_global_r["mean_G"],
         "cluster_r_mean_B":      cluster_global_r["mean_B"],
-    }]).to_csv(os.path.join(pred_dir, "seep_level_summary.csv"), index=False)
+    }]).to_csv(os.path.join(out_dir, "seep_level_summary.csv"), index=False)
 
     if bubble_dfs:
         bubbles_all = pd.concat(bubble_dfs, ignore_index=True)
         clusters_all = pd.concat(cluster_dfs, ignore_index=True)
-        _seep_feat_write_csvs(pred_dir, bubbles_all, clusters_all,
+        _seep_feat_write_csvs(out_dir, bubbles_all, clusters_all,
                               anchor_area_m2=anchor_area_m2,
                               cluster_radius_m=cluster_radius_m,
                               satellite_max_area_m2=satellite_max_area_m2,
@@ -427,11 +489,11 @@ def main(pred_dir, chip_dir,
                               lonely_max_halo_neighbors=lonely_max_halo_neighbors)
 
     if pred_seeps_gdfs:
-        out_fp = os.path.join(pred_dir, "pred_seeps.gpkg")
+        out_fp = os.path.join(out_dir, "pred_seeps.gpkg")
         write_seeps_gpkg(out_fp, pred_seeps_gdfs, class_column=False)
         print(f"  wrote {out_fp}")
     if gt_seeps_gdfs:
-        out_fp = os.path.join(pred_dir, "gt_seeps.gpkg")
+        out_fp = os.path.join(out_dir, "gt_seeps.gpkg")
         write_seeps_gpkg(out_fp, gt_seeps_gdfs, class_column=True)
         print(f"  wrote {out_fp} (empty 'class' column for QGIS labeling)")
 
@@ -444,6 +506,11 @@ if __name__ == "__main__":
     from config import configSwinUnet
     config = configSwinUnet.Configuration().validate()
     ckpt_pred_dir = os.path.join(config.results_dir, "20260428-1537_SWINxAE.weights")
+    # Optional subdir under pred_dir that this run's outputs (rasters + CSVs +
+    # GPKGs) get written into. Set in config to keep A/B run artifacts
+    # separate from the canonical ones written directly into pred_dir.
+    _subdir = getattr(config, "seep_eval_out_subdir", None)
+    _out_dir = os.path.join(ckpt_pred_dir, _subdir) if _subdir else ckpt_pred_dir
     main(
         pred_dir=ckpt_pred_dir,
         chip_dir=config.preprocessed_dir,
@@ -459,5 +526,11 @@ if __name__ == "__main__":
                                      DEFAULT_LONELY_HALO_RADIUS_M),
         lonely_max_halo_neighbors=getattr(config, "seep_lonely_max_halo_neighbors",
                                           DEFAULT_LONELY_MAX_HALO_NEIGHBORS),
+        snow_mask_enabled=getattr(config, "snow_mask_enabled", False),
+        snow_v_thresh=getattr(config, "snow_v_thresh", 0.85),
+        snow_s_thresh=getattr(config, "snow_s_thresh", 0.15),
+        snow_dilate_px=getattr(config, "snow_mask_dilate_px", 0),
+        write_snow_rasters=getattr(config, "write_snow_rasters", True),
         write_seep_cluster_rasters=getattr(config, "write_seep_cluster_rasters", True),
+        out_dir=_out_dir,
     )
