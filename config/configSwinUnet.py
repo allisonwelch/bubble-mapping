@@ -206,7 +206,7 @@ class Configuration:
         self.seep_lonely_cluster_radius_m = 0.4
         self.seep_lonely_halo_radius_m = 1.5
         self.seep_lonely_max_halo_neighbors = 5
-        self.write_seep_cluster_rasters = True
+        self.write_seep_cluster_rasters = False
 
         # --- HSV SNOW MASK (predictions only; GT is never masked) ---
         # Read by tools/seep_level_eval.py. Snow heuristic per pixel:
@@ -239,20 +239,20 @@ class Configuration:
         # snow regions. 5px fills narrow tracks; 10–15px fills larger
         # embedded features at the cost of bridging nearby snow patches.
         # Set to 0 to disable.
-        self.snow_mask_enabled = True
-        self.snow_v_thresh = 0.75
+        self.snow_mask_enabled = False
+        self.snow_v_thresh = 0.85
         self.snow_s_thresh = 0.15
-        self.snow_mask_close_px = 5
+        self.snow_mask_close_px = 0
         self.snow_mask_dilate_px = 0
-        self.snow_cc_drop_frac = 0.3
-        self.write_snow_rasters = True
+        self.snow_cc_drop_frac = 0.5
+        self.write_snow_rasters = False
 
         # All artifacts from a tools/seep_level_eval.py run (per-chip rasters,
         # CSVs, GPKGs) land in {pred_dir}/{seep_eval_out_subdir}/ when this is
         # set. Lets A/B runs (e.g. snow-mask on vs off) write to parallel
         # subdirectories without overwriting the canonical baseline artifacts
         # directly in pred_dir. Set to None to write to pred_dir as before.
-        self.seep_eval_out_subdir = "20260512_snow_mask"
+        self.seep_eval_out_subdir = "20260512_sanity_check"
 
         # Prediction outputs (for completeness with tools)
         # Attribute field in training_area_fn whose value is the .tif basename (no extension)
