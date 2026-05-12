@@ -38,11 +38,52 @@ except ImportError:
 #    preprocessed chip in config.preprocessed_dir (this mirrors how
 #    evaluation.py reads frame.annotations — see evaluation.py:1066-1071).
 
+def _drop_snow_ccs(pred, snow, drop_frac):
+    """Drop CCs in `pred` whose pixel-overlap with `snow` exceeds `drop_frac`.
+
+    Pixel-level masking on a smoothed prediction can carve holes inside CCs,
+    fragmenting one snow-FP into several smaller FPs. This filter labels the
+    prediction, measures the snow fraction inside each CC, and zeros the
+    entire CC (whole-or-nothing) when its snow fraction strictly exceeds
+    `drop_frac`. Background (label 0) is ignored.
+
+    Returns (filtered_pred, n_dropped).
+    """
+    pred_b = pred.astype(bool)
+    lab = label(pred_b, connectivity=2)
+    n_cc = int(lab.max())
+    if n_cc == 0:
+        return pred, 0
+    snow_b = snow.astype(bool)
+    flat = lab.ravel()
+    areas = np.bincount(flat, minlength=n_cc + 1)
+    snow_per_cc = np.bincount(flat,
+                              weights=snow_b.ravel().astype(np.int64),
+                              minlength=n_cc + 1)
+    fracs = np.zeros(n_cc + 1, dtype=np.float64)
+    nz = areas > 0
+    fracs[nz] = snow_per_cc[nz] / areas[nz]
+    drop_ids = np.where(fracs > float(drop_frac))[0]
+    drop_ids = drop_ids[drop_ids > 0]  # never drop background
+    if drop_ids.size == 0:
+        return pred, 0
+    drop_mask = np.isin(lab, drop_ids)
+    out = pred.copy()
+    out[drop_mask] = 0
+    return out, int(drop_ids.size)
+
+
 def load_pair(pred_tif, chip_tif,
-              snow_v_thresh=None, snow_s_thresh=None, snow_dilate_px=0):
-    """Read prediction + chip, smooth pred, and (optionally) zero pred where
-    HSV snow mask is hot. Returns (pred, gt_bin, image, transform, profile,
-    snow). `snow` is None unless snow_v_thresh and snow_s_thresh are both set.
+              snow_v_thresh=None, snow_s_thresh=None, snow_dilate_px=0,
+              snow_cc_drop_frac=0.5):
+    """Read prediction + chip, smooth pred, and (optionally) apply the
+    CC-level snow filter: drop entire predicted CCs whose pixel-overlap with
+    the HSV snow mask exceeds `snow_cc_drop_frac`. The snow raster is still
+    computed and returned for QGIS overlay even when no CCs end up dropped.
+
+    Returns (pred, gt_bin, image, transform, profile, snow, n_dropped).
+    `snow` is None unless both snow_v_thresh and snow_s_thresh are set.
+    `n_dropped` is the number of CCs zeroed by the filter (0 if disabled).
     """
     with rasterio.open(pred_tif) as src:
         pred = smooth_pred(src.read(1))
@@ -61,14 +102,15 @@ def load_pair(pred_tif, chip_tif,
     gt_bin = (gt >= 0.5).astype(np.uint8)
 
     snow = None
+    n_dropped = 0
     if snow_v_thresh is not None and snow_s_thresh is not None:
         snow = snow_mask_hsv(image, v_thresh=snow_v_thresh,
                              s_thresh=snow_s_thresh,
                              dilate_px=snow_dilate_px)
-        if snow is not None:
-            pred = pred.copy()
-            pred[snow] = 0
-    return pred, gt_bin, image, transform, pred_profile, snow
+        if (snow is not None and snow_cc_drop_frac is not None
+                and float(snow_cc_drop_frac) > 0):
+            pred, n_dropped = _drop_snow_ccs(pred, snow, snow_cc_drop_frac)
+    return pred, gt_bin, image, transform, pred_profile, snow, n_dropped
 
 # 2. Connected components and centroids.
 def cc_with_props(binary_mask):
@@ -237,6 +279,7 @@ def main(pred_dir, chip_dir,
          snow_v_thresh=0.85,
          snow_s_thresh=0.15,
          snow_dilate_px=0,
+         snow_cc_drop_frac=0.5,
          write_snow_rasters=True,
          write_seep_cluster_rasters=True,
          out_dir=None):
@@ -259,6 +302,7 @@ def main(pred_dir, chip_dir,
     cluster_pair_rows = []
     snow_px_total = 0
     img_px_total = 0
+    snow_ccs_dropped_total = 0
     pred_fps = [
         fp for fp in sorted(glob.glob(os.path.join(pred_dir, "*.tif")))
         if not fp.endswith(("_prob.tif", "_epistemic.tif", "_aleatoric.tif",
@@ -272,11 +316,13 @@ def main(pred_dir, chip_dir,
         chip_fp = os.path.join(chip_dir, os.path.basename(pred_fp))
         if not os.path.exists(chip_fp):
             continue
-        pred, gt, image, transform, pred_profile, snow = load_pair(
+        pred, gt, image, transform, pred_profile, snow, n_dropped = load_pair(
             pred_fp, chip_fp,
             snow_v_thresh=sv, snow_s_thresh=ss,
             snow_dilate_px=snow_dilate_px,
+            snow_cc_drop_frac=snow_cc_drop_frac if snow_mask_enabled else 0,
         )
+        snow_ccs_dropped_total += n_dropped
         crs = pred_profile.get("crs")
         pl, pp = cc_with_props(pred)
         gl, gp = cc_with_props(gt)
@@ -409,6 +455,8 @@ def main(pred_dir, chip_dir,
     if snow_mask_enabled:
         print(f"\nSNOW MASK: v>={snow_v_thresh:.2f} s<={snow_s_thresh:.2f} "
               f"dilate={snow_dilate_px}px  → {snow_pct:.2f}% of pixels masked")
+        print(f"  CC-level filter: drop_frac>{snow_cc_drop_frac:.2f}  → "
+              f"{snow_ccs_dropped_total} CCs dropped across {len(df)} chips")
     print(f"\nBUBBLE-LEVEL (CC↔CC, fragmentation diagnostic):")
     print(f"  precision={precision:.3f} recall={recall:.3f} F1={f1:.3f}")
     print(f"  FEATURE r (n={len(pairs_df)}): "
@@ -457,6 +505,10 @@ def main(pred_dir, chip_dir,
         "snow_s_thresh": snow_s_thresh if snow_mask_enabled else float("nan"),
         "snow_dilate_px": int(snow_dilate_px) if snow_mask_enabled else 0,
         "snow_pct_masked": snow_pct if snow_mask_enabled else float("nan"),
+        "snow_cc_drop_frac": (float(snow_cc_drop_frac) if snow_mask_enabled
+                              else float("nan")),
+        "snow_ccs_dropped": (int(snow_ccs_dropped_total) if snow_mask_enabled
+                             else 0),
         "tp": int(tp), "fn": int(fn), "fp": int(fp),
         "precision": precision, "recall": recall, "f1": f1,
         "r_area_m2": global_r["area_m2"],
@@ -530,6 +582,7 @@ if __name__ == "__main__":
         snow_v_thresh=getattr(config, "snow_v_thresh", 0.85),
         snow_s_thresh=getattr(config, "snow_s_thresh", 0.15),
         snow_dilate_px=getattr(config, "snow_mask_dilate_px", 0),
+        snow_cc_drop_frac=getattr(config, "snow_cc_drop_frac", 0.5),
         write_snow_rasters=getattr(config, "write_snow_rasters", True),
         write_seep_cluster_rasters=getattr(config, "write_seep_cluster_rasters", True),
         out_dir=_out_dir,

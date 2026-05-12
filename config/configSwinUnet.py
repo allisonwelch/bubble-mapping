@@ -212,17 +212,30 @@ class Configuration:
         # Read by tools/seep_level_eval.py. Snow heuristic per pixel:
         #   V (= max(R,G,B) / dtype_max)            >= snow_v_thresh
         #   S (= (max-min) / max, == 0 for grayscale) <= snow_s_thresh
-        # When `snow_mask_enabled`, the boolean mask is zeroed out of the
-        # smoothed prediction BEFORE CC labeling — so cluster/seep metrics
-        # downstream see fewer snow-driven FPs. A {stem}_snow.tif is also
-        # written per chip when write_snow_rasters=True so the mask can be
-        # overlaid on the chip in QGIS to verify it isn't eating real bubbles.
-        # Tune by toggling snow_mask_enabled and inspecting the rasters; the
-        # cluster_f1 delta in seep_level_summary.csv tells you the metric impact.
+        # When `snow_mask_enabled`, the snow mask drives a CC-LEVEL filter:
+        # the smoothed prediction is labeled into connected components, and
+        # any CC whose pixel-overlap with the snow mask exceeds
+        # `snow_cc_drop_frac` is dropped whole (set to 0). This is whole-or-
+        # nothing — unlike pixel-level zeroing it never carves holes inside
+        # a CC, which avoids fragmenting one snow-FP into several smaller
+        # FPs. A {stem}_snow.tif is also written per chip when
+        # write_snow_rasters=True so the mask can be overlaid on the chip in
+        # QGIS to verify it isn't eating real bubbles. Tune by toggling
+        # snow_mask_enabled and inspecting seep_level_summary.csv columns
+        # `snow_pct_masked` (how much of the image the mask hits) and
+        # `snow_ccs_dropped` (how many CCs were filtered out).
+        #
+        # snow_cc_drop_frac sweep guide:
+        #   0.3 = aggressive (drop CCs with any substantial snow overlap)
+        #   0.5 = majority   (default — drop CCs that are mostly snow)
+        #   0.7 = conservative (drop only CCs that are almost fully snow)
+        # Set to 0 to disable the CC filter while still writing _snow.tif
+        # rasters for diagnostic overlay.
         self.snow_mask_enabled = True
         self.snow_v_thresh = 0.85
         self.snow_s_thresh = 0.15
         self.snow_mask_dilate_px = 0
+        self.snow_cc_drop_frac = 0.5
         self.write_snow_rasters = True
 
         # All artifacts from a tools/seep_level_eval.py run (per-chip rasters,
