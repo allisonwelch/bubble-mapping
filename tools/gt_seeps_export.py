@@ -1,21 +1,19 @@
 # tools/gt_seeps_export.py
 """
-Export per-chip ground-truth seeps to a single labelable vector layer.
+Export per-chip ground-truth seeps to a single labelable vector layer,
+PRESERVING the original drawn polygon shapes.
 
-Each test chip's last band is the rasterized GT label mask (drawn at the
-seep level — one polygon per seep, per CLAUDE.md 2026-05-11). This script:
-  1. Walks chip_dir (or the chips referenced by pred_dir).
-  2. For each chip: label() the GT band → one CC per seep; compute
-     polygon-level features (area, perim, circularity, solidity,
-     eccentricity, mean_R/G/B) via seep_feature_table.compute_bubble_features.
-  3. Polygonizes the same labels and merges features by id.
-  4. Adds an empty `class` column for QGIS attribute-table editing.
-  5. Writes ONE gt_seeps.gpkg containing all chips' seeps.
+Walks chip_dir; for each chip reads its CRS+extent and clips the original
+GT polygons (config.training_polygon_fn) to that extent. Per-polygon
+features (area, perim, circularity, solidity, eccentricity, mean_R/G/B)
+are computed by build_gt_seeps_from_source so adjacent polygons never get
+merged into a single CC the way the rasterize -> CC -> repolygonize path
+used to merge them.
 
 QGIS workflow:
   - Load gt_seeps.gpkg in QGIS, chip imagery as basemap underneath.
-  - Toggle editing on the layer → open attribute table → fill `class`.
-  - Save edits → ship the .gpkg back.
+  - Toggle editing on the layer -> open attribute table -> fill `class`.
+  - Save edits -> ship the .gpkg back.
 
 Output path defaults to pred_dir (so all eval artifacts live together);
 override via --out_dir or out_dir=. CLI passes through to main(...).
@@ -24,85 +22,84 @@ import os
 import sys
 import glob
 import argparse
-import numpy as np
-import rasterio
-from skimage.measure import label as cc_label
 from tqdm import tqdm
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from seep_feature_table import (
-    labels_to_seep_gdf,
+    build_gt_seeps_from_source,
     write_seeps_gpkg,
     _AUX_SUFFIXES,
 )
 
 try:
-    import geopandas as gpd  # noqa: F401
+    import geopandas as gpd
     _HAS_GPD = True
 except ImportError:
+    gpd = None
     _HAS_GPD = False
 
 
-def _load_gt_and_image(chip_fp):
-    """Read last band as GT mask, all but-last bands as the chip image."""
-    with rasterio.open(chip_fp) as src:
-        n = src.count
-        gt = src.read(n)
-        if n > 1:
-            image = np.transpose(src.read(list(range(1, n))), (1, 2, 0))
-        else:
-            image = gt
-        transform = src.transform
-        crs = src.crs
-    if gt.max() > 1.5:
-        gt = (gt / 255.0)
-    gt_bin = (gt >= 0.5).astype(np.uint8)
-    return gt_bin, image, transform, crs
-
-
-def build_gt_seeps_for_chip(chip_fp):
-    """Return a GeoDataFrame of GT seep polygons for one chip, or None if
-    the chip has no labels or no CRS."""
+def _load_source_polygons(source_polygons_fp):
     if not _HAS_GPD:
         raise RuntimeError("geopandas is required")
-    gt_bin, image, transform, crs = _load_gt_and_image(chip_fp)
-    if crs is None:
-        return None
-    lab = cc_label(gt_bin, connectivity=2)
-    if int(lab.max()) == 0:
-        return None
-    gdf = labels_to_seep_gdf(lab, image, transform, crs, id_name="seep_id")
-    if gdf.empty:
-        return None
-    gdf.insert(0, "image", os.path.basename(chip_fp))
-    return gdf
+    print(f"loading source polygons: {source_polygons_fp}")
+    src = gpd.read_file(source_polygons_fp)
+    print(f"  -> {len(src)} polygons (crs={src.crs})")
+    return src
 
 
-def main(chip_source_dir, out_dir, glob_pattern="*.tif"):
-    """Walk chip_source_dir, build one GeoDataFrame per chip, concat, write.
+def main(chip_dir, out_dir, source_polygons_fp,
+         pred_dir=None, glob_pattern="*.tif"):
+    """Build gt_seeps.gpkg from the ORIGINAL drawn polygons.
 
-    chip_source_dir can be either:
-      - the chip directory (every *.tif in there is a chip), or
-      - the pred directory (every non-aux *.tif has a matching chip filename
-        in some other directory — caller should pass the actual chip dir).
+    Scope of which chips to include is controlled by `pred_dir`:
+      - If pred_dir is given, only chips whose basename matches a prediction
+        .tif in pred_dir are processed. This is the canonical convention
+        (matches what seep_level_eval.py writes) -- gt_seeps reflects the
+        TEST SET that was evaluated.
+      - If pred_dir is None, walks every chip in chip_dir. Use only when you
+        intentionally want GT polygons for all chips (train+val+test).
     """
     if not _HAS_GPD:
         raise RuntimeError("geopandas is required")
-    fps = [
-        fp for fp in sorted(glob.glob(os.path.join(chip_source_dir, glob_pattern)))
-        if not fp.endswith(_AUX_SUFFIXES)
-        and not fp.endswith(("_seep_cluster.tif",))
-        and "_r125_r45_r10_lonely_seep_cluster" not in fp
-    ]
+    src_gdf = _load_source_polygons(source_polygons_fp)
+
+    if pred_dir is not None:
+        pred_fps = [
+            fp for fp in sorted(glob.glob(os.path.join(pred_dir, glob_pattern)))
+            if not fp.endswith(_AUX_SUFFIXES)
+            and not fp.endswith(("_seep_cluster.tif",))
+            and "_r125_r45_r10_lonely_seep_cluster" not in fp
+        ]
+        chip_fps = []
+        for pfp in pred_fps:
+            cfp = os.path.join(chip_dir, os.path.basename(pfp))
+            if os.path.exists(cfp):
+                chip_fps.append(cfp)
+        scope_label = f"{len(chip_fps)} chips matching predictions in {pred_dir}"
+    else:
+        chip_fps = [
+            fp for fp in sorted(glob.glob(os.path.join(chip_dir, glob_pattern)))
+            if not fp.endswith(_AUX_SUFFIXES)
+            and not fp.endswith(("_seep_cluster.tif",))
+            and "_r125_r45_r10_lonely_seep_cluster" not in fp
+        ]
+        scope_label = f"all {len(chip_fps)} chips in {chip_dir}"
+
+    print(f"processing {scope_label}")
     gdfs = []
-    for fp in tqdm(fps, desc="GT seep polygons"):
-        g = build_gt_seeps_for_chip(fp)
-        if g is not None:
-            gdfs.append(g)
+    for fp in tqdm(chip_fps, desc="GT seep polygons"):
+        g = build_gt_seeps_from_source(fp, src_gdf, id_name="seep_id")
+        if g is None or g.empty:
+            continue
+        g.insert(0, "image", os.path.basename(fp))
+        gdfs.append(g)
     if not gdfs:
         raise RuntimeError(
-            f"No GT polygons extracted from {chip_source_dir}.\n"
-            f"Check that the chips' last band is the rasterized GT mask."
+            f"No GT polygons extracted.\n"
+            f"  scope: {scope_label}\n"
+            f"  source polygons: {source_polygons_fp}\n"
+            f"Check that source_polygons_fp covers the same area as the chips."
         )
     os.makedirs(out_dir, exist_ok=True)
     out_fp = os.path.join(out_dir, "gt_seeps.gpkg")
@@ -119,16 +116,47 @@ def _parse_args():
                    help="Directory of chip .tif files (default: config.preprocessed_dir)")
     p.add_argument("--out_dir", default=None,
                    help="Where to write gt_seeps.gpkg (default: pred_dir)")
+    p.add_argument("--source_polygons", default=None,
+                   help="Path to source polygon GPKG "
+                        "(default: config.training_data_dir/config.training_polygon_fn)")
+    p.add_argument("--pred_dir", default=None,
+                   help="Restrict scope to chips matching predictions in this dir "
+                        "(default: same as out_dir, which is the canonical pred_dir). "
+                        "Pass --pred_dir '' to walk every chip in chip_dir instead.")
     return p.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-    from config import configSwinUnet
-    config = configSwinUnet.Configuration().validate()
-    chip_dir = args.chip_dir or config.preprocessed_dir
-    out_dir = args.out_dir or os.path.join(
-        config.results_dir, "20260428-1537_SWINxAE.weights"
-    )
-    main(chip_source_dir=chip_dir, out_dir=out_dir)
+    # Only load config when at least one CLI arg is missing -- skipping config
+    # avoids validate() failures on machines whose REPO_PATH doesn't match.
+    if not (args.chip_dir and args.out_dir and args.source_polygons):
+        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+        from config import configSwinUnet
+        config = configSwinUnet.Configuration().validate()
+        chip_dir = args.chip_dir or config.preprocessed_dir
+        out_dir = args.out_dir or os.path.join(
+            config.results_dir, "20260428-1537_SWINxAE.weights"
+        )
+        source_polygons_fp = args.source_polygons or os.path.join(
+            config.training_data_dir, config.training_polygon_fn
+        )
+    else:
+        chip_dir = args.chip_dir
+        out_dir = args.out_dir
+        source_polygons_fp = args.source_polygons
+
+    # pred_dir scope:
+    #   None (default)  -> use out_dir (canonical: out_dir IS pred_dir)
+    #   ""              -> disable; walk every chip in chip_dir
+    #   <path>          -> use the given path
+    if args.pred_dir is None:
+        pred_dir = out_dir
+    elif args.pred_dir == "":
+        pred_dir = None
+    else:
+        pred_dir = args.pred_dir
+
+    main(chip_dir=chip_dir, out_dir=out_dir,
+         source_polygons_fp=source_polygons_fp,
+         pred_dir=pred_dir)

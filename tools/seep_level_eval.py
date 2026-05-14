@@ -16,7 +16,7 @@ from write_seep_rasters import (
 from seep_feature_table import (
     process_pred as _seep_feat_process,
     write_feature_csvs as _seep_feat_write_csvs,
-    labels_to_seep_gdf,
+    build_gt_seeps_from_source,
     write_seeps_gpkg,
     DEFAULT_ANCHOR_AREA_M2,
     DEFAULT_CLUSTER_RADIUS_M,
@@ -285,7 +285,8 @@ def main(pred_dir, chip_dir,
          snow_cc_drop_frac=0.5,
          write_snow_rasters=True,
          write_seep_cluster_rasters=True,
-         out_dir=None):
+         out_dir=None,
+         source_polygons_fp=None):
     """Run cluster-level seep evaluation.
 
     `out_dir`: where per-chip rasters, CSVs and GPKGs from this run are
@@ -293,10 +294,22 @@ def main(pred_dir, chip_dir,
     Pass a subdirectory path to keep this run's outputs separate from the
     canonical artifacts in `pred_dir` (useful for A/B comparison runs).
     Directory is created if missing.
+
+    `source_polygons_fp`: path to the original drawn-polygon GPKG used to
+    build gt_seeps.gpkg with preserved per-polygon shapes. Required for the
+    cluster-level (canonical) seep matcher and for the GT GPKG written at
+    the end of the run. If None, gt_seeps.gpkg is NOT written and the
+    cluster-level metrics fall back to empty.
     """
     if out_dir is None:
         out_dir = pred_dir
     os.makedirs(out_dir, exist_ok=True)
+
+    src_gdf = None
+    if source_polygons_fp is not None and _HAS_GPD:
+        print(f"loading source polygons: {source_polygons_fp}")
+        src_gdf = gpd.read_file(source_polygons_fp)
+        print(f"  -> {len(src_gdf)} source polygons (crs={src_gdf.crs})")
     rows = []
     pair_rows = []
     bubble_dfs, cluster_dfs = [], []
@@ -358,12 +371,18 @@ def main(pred_dir, chip_dir,
         if pred_seeps_gdf is not None:
             pred_seeps_gdfs.append(pred_seeps_gdf)
 
+        # Build GT seep polygons from the ORIGINAL drawn polygons (clipped to
+        # this chip), NOT by re-polygonizing the rasterized GT mask. The
+        # rasterize -> CC -> repolygonize round-trip merges any two original
+        # polygons that touch (or sit within 1 px diagonally) into a single
+        # output polygon, which destroys per-seep class labels and inflates
+        # per-row area_m2 / distorts solidity. See seep_feature_table.
         gt_seeps_gdf = None
-        if _HAS_GPD and crs is not None and int(gl.max()) > 0:
-            gt_seeps_gdf = labels_to_seep_gdf(
-                gl, image, transform, crs, id_name="seep_id"
+        if _HAS_GPD and crs is not None and src_gdf is not None:
+            gt_seeps_gdf = build_gt_seeps_from_source(
+                chip_fp, src_gdf, id_name="seep_id"
             )
-            if not gt_seeps_gdf.empty:
+            if gt_seeps_gdf is not None and not gt_seeps_gdf.empty:
                 gt_seeps_gdf.insert(0, "image", os.path.basename(pred_fp))
                 gt_seeps_gdfs.append(gt_seeps_gdf)
 
@@ -593,4 +612,7 @@ if __name__ == "__main__":
         write_snow_rasters=getattr(config, "write_snow_rasters", True),
         write_seep_cluster_rasters=getattr(config, "write_seep_cluster_rasters", True),
         out_dir=_out_dir,
+        source_polygons_fp=os.path.join(
+            config.training_data_dir, config.training_polygon_fn
+        ),
     )

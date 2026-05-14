@@ -25,11 +25,13 @@ import numpy as np
 import pandas as pd
 import rasterio
 from rasterio.features import shapes as rio_shapes
+from rasterio.features import rasterize as rio_rasterize
 from rasterio.transform import xy as rio_xy
 from scipy.spatial import cKDTree
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 from shapely.geometry import shape as shp_shape
+from shapely.geometry import box as shp_box
 from skimage.measure import regionprops
 from tqdm import tqdm
 
@@ -325,6 +327,122 @@ def labels_to_seep_gdf(label_array, image, transform, crs, id_name="seep_id"):
     gdf = polygonize_labels(label_array, transform, crs)
     gdf = gdf.rename(columns={"id": id_name})
     return gdf.merge(features, on=id_name, how="left")
+
+
+def build_gt_seeps_from_source(chip_fp, source_polygons_gdf,
+                               id_name="seep_id"):
+    """Build per-chip GT-seep GeoDataFrame from ORIGINAL drawn polygons.
+
+    Use this instead of running labels_to_seep_gdf on the rasterized GT mask:
+    the rasterize -> CC -> repolygonize round-trip merges any two original
+    polygons that touch (or sit within 1 px diagonally with 8-connectivity)
+    into a single output polygon, which destroys per-seep class labels.
+
+    For each source polygon intersecting the chip footprint:
+      - geometry: original polygon, clipped to chip extent
+      - area_m2 / perim_m / circularity / solidity: from shapely on the
+        clipped geometry (CRS is meters)
+      - eccentricity + mean_R/G/B: rasterize each polygon with a UNIQUE
+        per-polygon label (so adjacent polygons never merge into one CC)
+        and read regionprops + image pixels off that label raster
+
+    Returns a GeoDataFrame with the same column schema as labels_to_seep_gdf
+    (id_name, centroid_x_m, centroid_y_m, area_m2, perim_m, circularity,
+    solidity, eccentricity, mean_R, mean_G, mean_B, geometry). Returns None
+    when the chip has no CRS or no polygons intersect it.
+    """
+    if not _HAS_GPD:
+        raise RuntimeError("geopandas is required")
+    with rasterio.open(chip_fp) as src:
+        n = src.count
+        chip_crs = src.crs
+        transform = src.transform
+        H, W = src.height, src.width
+        bounds = src.bounds
+        # Image bands = all but the last (last is the rasterized GT mask).
+        if n > 2:
+            image = np.transpose(src.read(list(range(1, n))), (1, 2, 0))
+        elif n == 2:
+            image = src.read(1)
+        else:
+            image = src.read(1)
+
+    if chip_crs is None:
+        return None
+
+    src_gdf = source_polygons_gdf
+    if src_gdf.crs != chip_crs:
+        src_gdf = src_gdf.to_crs(chip_crs)
+
+    chip_box = shp_box(bounds.left, bounds.bottom, bounds.right, bounds.top)
+    cand_idx = list(src_gdf.sindex.query(chip_box))
+    if not cand_idx:
+        return None
+    cand = src_gdf.iloc[cand_idx][["geometry"]].copy()
+    cand["geometry"] = cand.geometry.intersection(chip_box)
+    cand = cand[~cand.geometry.is_empty & cand.geometry.notna()]
+    cand = cand[cand.geom_type.isin(("Polygon", "MultiPolygon"))]
+    if cand.empty:
+        return None
+    cand = cand.reset_index(drop=True)
+    cand[id_name] = np.arange(1, len(cand) + 1, dtype=np.int64)
+
+    has_rgb = image.ndim == 3 and image.shape[2] >= 3
+
+    # Unique per-polygon labels keep adjacent polygons in their own CCs.
+    shapes = list(zip(cand.geometry, cand[id_name].astype(int).values))
+    label_arr = rio_rasterize(
+        shapes, out_shape=(H, W), transform=transform,
+        fill=0, all_touched=False, dtype=np.int32,
+    )
+    rp_by_label = {p.label: p for p in regionprops(label_arr)}
+
+    rows = []
+    for _, r in cand.iterrows():
+        sid = int(r[id_name])
+        geom = r.geometry
+        ar_m2 = float(geom.area)
+        per_m = max(float(geom.length), 1e-9)
+        circ = 4 * np.pi * ar_m2 / (per_m ** 2)
+        hull_area = float(geom.convex_hull.area)
+        sol = float(ar_m2 / hull_area) if hull_area > 0 else 0.0
+        c = geom.centroid
+        cx_m, cy_m = float(c.x), float(c.y)
+
+        p = rp_by_label.get(sid)
+        if p is not None:
+            ecc = float(p.eccentricity)
+            ys, xs = np.where(label_arr == sid)
+            if has_rgb and len(ys):
+                mR = float(image[ys, xs, 0].mean())
+                mG = float(image[ys, xs, 1].mean())
+                mB = float(image[ys, xs, 2].mean())
+            elif len(ys):
+                v = float(image[ys, xs].mean()) if image.ndim == 2 \
+                    else float(image[ys, xs, 0].mean())
+                mR = mG = mB = v
+            else:
+                mR = mG = mB = float("nan")
+        else:
+            # Polygon was sub-pixel and didn't paint any cells; geometry
+            # features still come from shapely so we keep the row.
+            ecc = float("nan")
+            mR = mG = mB = float("nan")
+
+        rows.append({
+            id_name: sid,
+            "centroid_x_m": cx_m, "centroid_y_m": cy_m,
+            "area_m2": ar_m2, "perim_m": per_m,
+            "circularity": circ, "solidity": sol, "eccentricity": ecc,
+            "mean_R": mR, "mean_G": mG, "mean_B": mB,
+        })
+
+    feat_df = pd.DataFrame(rows)
+    out = gpd.GeoDataFrame(
+        feat_df.merge(cand[[id_name, "geometry"]], on=id_name),
+        geometry="geometry", crs=chip_crs,
+    )
+    return out
 
 
 def build_pred_seeps_gdf(cluster_raster, clusters_df, image, transform, crs):
