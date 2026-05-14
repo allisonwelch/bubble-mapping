@@ -194,18 +194,23 @@ def paired_feature_correlation(matches, pred_feats, gt_feats):
     return out
 
 
-# 3b. Match pred CLUSTER polygons to GT polygons by shapely IoU.
-#     Greedy, ties broken by IoU. This is the seep-level matcher: a TP is
-#     "one pred cluster covered one GT seep polygon," correcting the
-#     bubble-fragmentation underestimate that CC-to-CC matching suffers from
-#     when the detector emits multiple CCs inside one GT polygon.
+# 3b. Match pred CLUSTER polygons to GT polygons by shapely IoU. Multi-truth:
+#     one pred cluster can match MULTIPLE GT polygons. Required because the
+#     pred-side anchor-conditional clustering sometimes bridges across GT
+#     polygon boundaries -- one-to-one matching converted those into
+#     artificial FNs once GT was de-merged from rasterization. Each GT scores
+#     its own TP off the best-IoU pred; a pred is FP only when no GT picked
+#     it. Caveat for downstream Stage-3 classification: a pred cluster that
+#     spans multiple GT seeps still represents a real over-merging problem
+#     even though it counts as multiple TPs here -- flag in Limitations.
 def match_polygons(pred_gdf, gt_gdf, pred_id="cluster_id", gt_id="seep_id",
                    iou_thresh=0.1):
-    matches = []
+    matches = []  # list of (pred_id, gt_id); pred_id may repeat
+    matched_gt = set()
+    matched_pred = set()
     if pred_gdf is None or gt_gdf is None or pred_gdf.empty or gt_gdf.empty:
-        used_pred, used_gt = set(), set()
+        pass
     else:
-        used_pred, used_gt = set(), set()
         sindex = pred_gdf.sindex
         for _, g_row in gt_gdf.iterrows():
             gid = int(g_row[gt_id])
@@ -216,8 +221,6 @@ def match_polygons(pred_gdf, gt_gdf, pred_id="cluster_id", gt_id="seep_id",
             for idx in sindex.query(gpoly):
                 p_row = pred_gdf.iloc[int(idx)]
                 pid = int(p_row[pred_id])
-                if pid in used_pred:
-                    continue
                 ppoly = p_row.geometry
                 if ppoly is None or ppoly.is_empty:
                     continue
@@ -232,16 +235,16 @@ def match_polygons(pred_gdf, gt_gdf, pred_id="cluster_id", gt_id="seep_id",
                     best_iou, best = iou, pid
             if best is not None and best_iou >= iou_thresh:
                 matches.append((best, gid))
-                used_pred.add(best)
-                used_gt.add(gid)
+                matched_gt.add(gid)
+                matched_pred.add(best)
     fn = []
     fp = []
     if gt_gdf is not None and not gt_gdf.empty:
         fn = [int(g[gt_id]) for _, g in gt_gdf.iterrows()
-              if int(g[gt_id]) not in used_gt]
+              if int(g[gt_id]) not in matched_gt]
     if pred_gdf is not None and not pred_gdf.empty:
         fp = [int(p[pred_id]) for _, p in pred_gdf.iterrows()
-              if int(p[pred_id]) not in used_pred]
+              if int(p[pred_id]) not in matched_pred]
     return matches, fn, fp
 
 
@@ -438,10 +441,17 @@ def main(pred_dir, chip_dir,
             if c_matches:
                 pf_idx = pred_seeps_gdf.set_index("cluster_id")
                 gf_idx = gt_seeps_gdf.set_index("seep_id")
+                # Multi-truth matcher: a pred can appear in multiple match
+                # rows. n_pred_matches lets reviewers spot over-spanning preds
+                # when interpreting per-feature r (esp. r_area / r_perim,
+                # which deflate when one pred covers several GT polygons).
+                from collections import Counter
+                pred_share = Counter(pid for pid, _ in c_matches)
                 for pid, gid in c_matches:
                     pf, gf = pf_idx.loc[pid], gf_idx.loc[gid]
                     row = {"image": os.path.basename(pred_fp),
-                           "cluster_id": pid, "seep_id": gid}
+                           "cluster_id": pid, "seep_id": gid,
+                           "n_pred_matches": int(pred_share[pid])}
                     for k in _CLUSTER_FEATURE_KEYS:
                         row[f"{k}_pred"] = float(pf[k]) if k in pf else np.nan
                         row[f"{k}_gt"] = float(gf[k]) if k in gf else np.nan
