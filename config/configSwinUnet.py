@@ -252,7 +252,7 @@ class Configuration:
         # set. Lets A/B runs (e.g. snow-mask on vs off) write to parallel
         # subdirectories without overwriting the canonical baseline artifacts
         # directly in pred_dir. Set to None to write to pred_dir as before.
-        self.seep_eval_out_subdir = "20260514-2"
+        self.seep_eval_out_subdir = None
 
         # Prediction outputs (for completeness with tools)
         # Attribute field in training_area_fn whose value is the .tif basename (no extension)
