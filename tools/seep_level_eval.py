@@ -18,6 +18,8 @@ from seep_feature_table import (
     write_feature_csvs as _seep_feat_write_csvs,
     build_gt_seeps_from_source,
     write_seeps_gpkg,
+    anchor_cluster,
+    lonely_cluster,
     DEFAULT_ANCHOR_AREA_M2,
     DEFAULT_CLUSTER_RADIUS_M,
     DEFAULT_SATELLITE_MAX_AREA_M2,
@@ -28,9 +30,63 @@ from seep_feature_table import (
 
 try:
     import geopandas as gpd  # noqa: F401
+    from shapely.ops import unary_union
     _HAS_GPD = True
 except ImportError:
     _HAS_GPD = False
+
+
+def _auto_group_gt_seeps(gt_bubbles, anchor_area_m2, cluster_radius_m,
+                         satellite_max_area_m2, lonely_kwargs, image_name):
+    """Auto-group full per-chip GT bubble polygons into seeps with the SAME
+    two-phase rule used on predictions, then dissolve + recompute seep-level
+    features. Used by gt_grouping_mode='auto' so the headline cluster_f1 covers
+    every GT seep on the test chips (not just the manually-grouped sample) and
+    is an apples-to-apples seep-level DETECTION metric (both sides grouped by
+    the identical rule; grouping fidelity vs humans is measured separately by
+    the Phase-6 cross-validation).
+
+    `gt_bubbles`: per-polygon GeoDataFrame from build_gt_seeps_from_source
+    (columns seep_id, area_m2, perim_m, circularity, solidity, mean_R/G/B,
+    centroid_x_m, centroid_y_m, geometry).
+    Returns a dissolved GeoDataFrame keyed by seep_id (= rule cluster_id).
+    """
+    if gt_bubbles is None or gt_bubbles.empty:
+        return gt_bubbles
+    bub = pd.DataFrame({
+        "bubble_id": gt_bubbles["seep_id"].to_numpy(dtype=np.int64),
+        "area_m2": gt_bubbles["area_m2"].to_numpy(dtype=float),
+        "centroid_x_m": gt_bubbles["centroid_x_m"].to_numpy(dtype=float),
+        "centroid_y_m": gt_bubbles["centroid_y_m"].to_numpy(dtype=float),
+    })
+    bub = anchor_cluster(bub, anchor_area_m2, cluster_radius_m,
+                         satellite_max_area_m2)
+    bub = lonely_cluster(bub, **lonely_kwargs)
+    cid = dict(zip(bub["bubble_id"], bub["cluster_id"]))
+    g = gt_bubbles.copy()
+    g["_cluster_id"] = g["seep_id"].map(cid).astype(np.int64)
+
+    rows, geoms = [], []
+    for gid, grp in g.groupby("_cluster_id", sort=True):
+        union = unary_union(list(grp.geometry.values))
+        area = float(union.area)
+        perim = max(float(union.length), 1e-9)
+        hull = float(union.convex_hull.area)
+        w = grp["area_m2"].to_numpy(dtype=float)
+        wsum = w.sum() if w.sum() > 0 else 1.0
+        rows.append({
+            "image": image_name,
+            "seep_id": int(gid),
+            "area_m2": area, "perim_m": perim,
+            "circularity": 4 * np.pi * area / (perim ** 2),
+            "solidity": (area / hull) if hull > 0 else 0.0,
+            "mean_R": float((grp["mean_R"].to_numpy() * w).sum() / wsum),
+            "mean_G": float((grp["mean_G"].to_numpy() * w).sum() / wsum),
+            "mean_B": float((grp["mean_B"].to_numpy() * w).sum() / wsum),
+            "n_polygons_in_group": int(len(grp)),
+        })
+        geoms.append(union)
+    return gpd.GeoDataFrame(pd.DataFrame(rows), geometry=geoms, crs=gt_bubbles.crs)
 
 # 1. Locate paired (prediction, ground-truth) test images.
 #    Predictions are binary .tif files written by evaluation.py into
@@ -289,7 +345,9 @@ def main(pred_dir, chip_dir,
          write_snow_rasters=True,
          write_seep_cluster_rasters=True,
          out_dir=None,
-         source_polygons_fp=None):
+         source_polygons_fp=None,
+         labeled_seeps_fp=None,
+         gt_grouping_mode="auto"):
     """Run cluster-level seep evaluation.
 
     `out_dir`: where per-chip rasters, CSVs and GPKGs from this run are
@@ -299,20 +357,72 @@ def main(pred_dir, chip_dir,
     Directory is created if missing.
 
     `source_polygons_fp`: path to the original drawn-polygon GPKG used to
-    build gt_seeps.gpkg with preserved per-polygon shapes. Required for the
-    cluster-level (canonical) seep matcher and for the GT GPKG written at
-    the end of the run. If None, gt_seeps.gpkg is NOT written and the
-    cluster-level metrics fall back to empty.
+    build gt_seeps.gpkg with preserved per-polygon shapes. Used for the
+    cluster-level seep matcher and the GT GPKG written at the end of the run
+    when no grouped GT is supplied. If None, gt_seeps.gpkg is NOT written and
+    the cluster-level metrics fall back to empty.
+
+    `gt_grouping_mode`: how the GT side is grouped into seeps for the
+    cluster-level matcher. THREE-WAY behavior:
+      * "auto"   (default, headline metric): auto-group the FULL per-chip GT
+        bubbles with the same fitted two-phase rule used on predictions, then
+        match. Covers every GT seep on the test chips (not just the 750-seep
+        labeling sample, which is a deliberately non-representative stratified
+        sample per 2026-05-13 and is the WRONG denominator for a headline
+        cluster_f1). Both sides grouped by the identical rule => this is a
+        seep-level DETECTION metric; grouping fidelity vs humans is reported
+        separately by the Phase-6 cross-validation. Requires `source_polygons_fp`.
+      * "manual" (sample sanity-check): use the dissolved, labeler-grouped GT
+        seeps in `labeled_seeps_fp` (gt_seeps_labeled.gpkg) as the GT side.
+        Honest human-vs-pred seep matching, but only over the labeled sample.
+      * falls back to per-polygon GT (pre-2026-05-28 behavior) if neither a
+        source-polygon path (auto) nor a labeled file (manual) is available.
+
+    `labeled_seeps_fp`: path to gt_seeps_labeled.gpkg (used only in "manual"
+    mode). `source_polygons_fp`: original drawn-polygon GPKG (used in "auto"
+    mode and the per-polygon fallback).
     """
     if out_dir is None:
         out_dir = pred_dir
     os.makedirs(out_dir, exist_ok=True)
 
+    # Resolve the effective GT grouping mode given what's actually available.
+    gt_mode = gt_grouping_mode
+    labeled_gdf = None
+    if gt_mode == "manual":
+        if _HAS_GPD and labeled_seeps_fp is not None and os.path.exists(labeled_seeps_fp):
+            print(f"GT grouping = manual; loading grouped GT seeps: {labeled_seeps_fp}")
+            labeled_gdf = gpd.read_file(labeled_seeps_fp)
+            if "image" not in labeled_gdf.columns or "seep_id" not in labeled_gdf.columns:
+                raise RuntimeError(
+                    f"{labeled_seeps_fp} must have 'image' and 'seep_id' columns "
+                    f"(seep_id = the dissolved seep_group_id).")
+            print(f"  -> {len(labeled_gdf)} grouped GT seeps across "
+                  f"{labeled_gdf['image'].nunique()} chips (crs={labeled_gdf.crs})")
+        else:
+            print("GT grouping = manual requested but no labeled file found; "
+                  "falling back to per-polygon GT.")
+            gt_mode = "fallback"
+
+    # Per-polygon source: needed for "auto" (full-GT auto-grouping) and the
+    # per-polygon fallback.
     src_gdf = None
-    if source_polygons_fp is not None and _HAS_GPD:
+    if labeled_gdf is None and source_polygons_fp is not None and _HAS_GPD:
         print(f"loading source polygons: {source_polygons_fp}")
         src_gdf = gpd.read_file(source_polygons_fp)
         print(f"  -> {len(src_gdf)} source polygons (crs={src_gdf.crs})")
+    if gt_mode == "auto":
+        if src_gdf is None:
+            print("GT grouping = auto requested but no source polygons; "
+                  "cluster-level GT will be empty.")
+        else:
+            print("GT grouping = auto; full per-chip GT will be rule-grouped "
+                  "into seeps with the fitted clustering params.")
+    lonely_kwargs = dict(
+        lonely_cluster_radius_m=lonely_cluster_radius_m,
+        lonely_halo_radius_m=lonely_halo_radius_m,
+        lonely_max_halo_neighbors=lonely_max_halo_neighbors,
+    )
     rows = []
     pair_rows = []
     bubble_dfs, cluster_dfs = [], []
@@ -374,20 +484,38 @@ def main(pred_dir, chip_dir,
         if pred_seeps_gdf is not None:
             pred_seeps_gdfs.append(pred_seeps_gdf)
 
-        # Build GT seep polygons from the ORIGINAL drawn polygons (clipped to
-        # this chip), NOT by re-polygonizing the rasterized GT mask. The
-        # rasterize -> CC -> repolygonize round-trip merges any two original
-        # polygons that touch (or sit within 1 px diagonally) into a single
-        # output polygon, which destroys per-seep class labels and inflates
-        # per-row area_m2 / distorts solidity. See seep_feature_table.
+        # Build GT seep polygons. Three paths, selected by gt_grouping_mode:
+        #  - "manual": this chip's rows from the dissolved labeler-grouped seeps
+        #    (seep_id = dissolved seep_group_id). Human-vs-pred over the sample.
+        #  - "auto": rebuild the full per-chip GT polygons from the ORIGINAL
+        #    drawn shapes, then rule-group them into seeps (same params as pred)
+        #    and dissolve. Full-test-set seep-level detection metric.
+        #  - "fallback": per-polygon GT (pre-2026-05-28). We avoid
+        #    rasterize -> CC -> repolygonize (it merges adjacent polygons,
+        #    destroying per-seep labels and distorting features).
         gt_seeps_gdf = None
-        if _HAS_GPD and crs is not None and src_gdf is not None:
-            gt_seeps_gdf = build_gt_seeps_from_source(
+        if _HAS_GPD and crs is not None and gt_mode == "manual" and labeled_gdf is not None:
+            sub = labeled_gdf[labeled_gdf["image"] == os.path.basename(pred_fp)].copy()
+            if not sub.empty:
+                if sub.crs is not None and sub.crs != crs:
+                    sub = sub.to_crs(crs)
+                gt_seeps_gdf = sub
+                gt_seeps_gdfs.append(gt_seeps_gdf)
+        elif _HAS_GPD and crs is not None and src_gdf is not None:
+            gt_bubbles = build_gt_seeps_from_source(
                 chip_fp, src_gdf, id_name="seep_id"
             )
-            if gt_seeps_gdf is not None and not gt_seeps_gdf.empty:
-                gt_seeps_gdf.insert(0, "image", os.path.basename(pred_fp))
-                gt_seeps_gdfs.append(gt_seeps_gdf)
+            if gt_bubbles is not None and not gt_bubbles.empty:
+                if gt_mode == "auto":
+                    gt_seeps_gdf = _auto_group_gt_seeps(
+                        gt_bubbles, anchor_area_m2, cluster_radius_m,
+                        satellite_max_area_m2, lonely_kwargs,
+                        os.path.basename(pred_fp))
+                else:  # per-polygon fallback
+                    gt_seeps_gdf = gt_bubbles
+                    gt_seeps_gdf.insert(0, "image", os.path.basename(pred_fp))
+                if gt_seeps_gdf is not None and not gt_seeps_gdf.empty:
+                    gt_seeps_gdfs.append(gt_seeps_gdf)
 
         pred_feats = feature_table(image, pl, pp, transform)
         gt_feats   = feature_table(image, gl, gp, transform)
@@ -579,10 +707,16 @@ def main(pred_dir, chip_dir,
         out_fp = os.path.join(out_dir, "pred_seeps.gpkg")
         write_seeps_gpkg(out_fp, pred_seeps_gdfs, class_column=False)
         print(f"  wrote {out_fp}")
-    if gt_seeps_gdfs:
+    if gt_seeps_gdfs and gt_mode == "fallback":
+        # Only the per-polygon fallback writes gt_seeps.gpkg with an empty
+        # 'class' column for the QGIS labeling exercise. The grouped paths
+        # ("manual" uses the supplied gt_seeps_labeled.gpkg; "auto" produces
+        # rule-grouped seeps that are NOT a labeling artifact) do not write it.
         out_fp = os.path.join(out_dir, "gt_seeps.gpkg")
         write_seeps_gpkg(out_fp, gt_seeps_gdfs, class_column=True)
         print(f"  wrote {out_fp} (empty 'class' column for QGIS labeling)")
+    elif gt_seeps_gdfs:
+        print(f"  GT grouping = {gt_mode}; gt_seeps.gpkg not rewritten")
 
     return precision, recall, f1
 
@@ -624,5 +758,14 @@ if __name__ == "__main__":
         out_dir=_out_dir,
         source_polygons_fp=os.path.join(
             config.training_data_dir, config.training_polygon_fn
+        ),
+        # GT grouping for the cluster-level matcher. "auto" (default) rule-groups
+        # the FULL per-chip GT into seeps for the headline metric; "manual" uses
+        # the labeler-grouped sample in gt_labeled_seeps_path for a sample
+        # sanity-check. See the 2026-05-29 CLAUDE.md note before choosing.
+        gt_grouping_mode=getattr(config, "gt_grouping_mode", "auto"),
+        labeled_seeps_fp=getattr(
+            config, "gt_labeled_seeps_path",
+            os.path.join(ckpt_pred_dir, "gt_seeps_labeled.gpkg"),
         ),
     )

@@ -208,6 +208,28 @@ class Configuration:
         self.seep_lonely_max_halo_neighbors = 5
         self.write_seep_cluster_rasters = False
 
+        # --- SEEP-LEVEL EVAL: GROUND-TRUTH GROUPING MODE ---
+        # Read by tools/seep_level_eval.py. Controls how the GT side is grouped
+        # into seeps for the cluster-level matcher (the headline cluster_f1):
+        #   "auto"   (headline) rule-group the FULL per-chip GT with the fitted
+        #            seep_anchor_area_m2 / seep_cluster_radius_m /
+        #            seep_satellite_max_area_m2 above (the same rule applied to
+        #            predictions), so cluster_f1 covers every test-chip seep and
+        #            is a seep-level DETECTION metric. ** Set the fitted Phase-6
+        #            values above BEFORE running, or GT gets grouped with the
+        #            provisional placeholders. **
+        #   "manual" match against the labeler-grouped 750-seep sample
+        #            (gt_seeps_labeled.gpkg) — human-vs-pred SANITY CHECK only,
+        #            NOT the headline (the 750 are a deliberately
+        #            non-representative stratified sample; wrong denominator).
+        # Grouping-rule-vs-human fidelity is reported separately by the Phase-6
+        # cross-validation kappa, not by this eval. See CLAUDE.md 2026-05-29.
+        self.gt_grouping_mode = "auto"
+        # Optional override of the manual-mode labeled-seeps file. Leave this
+        # line commented to auto-discover gt_seeps_labeled.gpkg in the
+        # checkpoint's pred_dir (do NOT set it to None — that disables discovery).
+        # self.gt_labeled_seeps_path = "/path/to/gt_seeps_labeled.gpkg"
+
         # --- HSV SNOW MASK (predictions only; GT is never masked) ---
         # Read by tools/seep_level_eval.py. Snow heuristic per pixel:
         #   V (= max(R,G,B) / dtype_max)            >= snow_v_thresh
