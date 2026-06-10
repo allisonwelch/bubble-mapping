@@ -321,10 +321,21 @@ def dissolve_to_seeps(grouped):
             "seep_group_id": int(gid),
             "seep_id": int(gid),   # eval expects a `seep_id`; group id is the seep
             "class": _majority(list(g["class"])) or "",
-            "is_pregrouped": int(round(g["is_pregrouped"].mean())),
+            # A seep is pregrouped if ANY constituent polygon is an envelope:
+            # one envelope contaminates the dissolved area/perim/solidity with
+            # interstitial ice, so the seep's features are not a clean
+            # bubble-union measurement and must be kept out of Phase-7 training.
+            # (NOT count-majority: a single area-dominant envelope is usually
+            # outnumbered by its satellites, which majority would wrongly admit.)
+            "is_pregrouped": int((g["is_pregrouped"].to_numpy() == 1).any()),
             "n_polygons_in_group": int(len(g)),
             "area_m2": area,
             "perim_m": perim,
+            # Footprint (convex-hull) area: the only size measure defined
+            # consistently across pregrouped envelopes, labeler-grouped unions,
+            # and pred clusters -- so it (unlike bubble-union area_m2) transfers
+            # and lets pregrouped seeps stay in the Phase-7 training set.
+            "hull_area_m2": hull,
             "circularity": 4 * np.pi * area / (perim ** 2),
             "solidity": (area / hull) if hull > 0 else 0.0,
             "mean_R": float((g["mean_R"].to_numpy() * w).sum() / wsum),

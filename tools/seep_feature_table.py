@@ -466,7 +466,12 @@ def build_pred_seeps_gdf(cluster_raster, clusters_df, image, transform, crs):
                                    "centroid_x_m", "centroid_y_m",
                                    "mean_R", "mean_G", "mean_B")]
     sub = clusters_df[["cluster_id"] + structure_cols].copy()
-    return gdf.merge(sub, on="cluster_id", how="left")
+    gdf = gdf.merge(sub, on="cluster_id", how="left")
+    # Footprint (convex-hull) area -- the size feature the A/B/C class tree uses;
+    # defined identically here and on GT seeps so thresholds transfer (see
+    # tools/seep_fit_class_tree.py FEATURES).
+    gdf["hull_area_m2"] = gdf.geometry.convex_hull.area
+    return gdf
 
 
 def write_seeps_gpkg(out_fp, gdfs, class_column=False):

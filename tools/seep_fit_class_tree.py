@@ -6,15 +6,22 @@ rules to the predicted seeps and (separately) to the pre-grouped GT seeps.
 
 Input: gt_seeps_labeled.gpkg (from tools/seep_labels_consolidate.py).
 
-Key decisions baked in (from CLAUDE.md 2026-05-14 / 2026-05-28):
-  * Features = area_m2, perim_m, mean_R, mean_G, mean_B ONLY.
-    solidity / eccentricity / circularity are EXCLUDED -- they are annotation
-    artifacts (hand-drawn polygon smoothing), not physical seep morphology.
-  * Train ONLY on is_pregrouped == False rows. Pre-grouped polygons are
-    envelope-shaped (include interstitial ice), whereas both labeler-grouped
-    seeps and pred clusters are bubble-union-shaped; mixing them mis-calibrates
-    the thresholds. Pre-grouped seeps are still *classified* by the trained tree
-    (step 6) -- excluded from training, not from the labeled set.
+Key decisions baked in (from CLAUDE.md 2026-05-14 / 2026-05-28 / 2026-06-01):
+  * Features = hull_area_m2, mean_R, mean_G, mean_B.
+    - hull_area_m2 (convex-hull footprint) is the SIZE axis. It replaces
+      bubble-union area_m2 / perim_m because hull area is defined consistently
+      across pregrouped envelopes, labeler-grouped unions, AND pred clusters,
+      whereas bubble-union area_m2 means different things for an envelope (a
+      footprint) vs a union (summed bubble area) and so does not transfer.
+    - solidity / eccentricity / circularity stay EXCLUDED -- annotation
+      artifacts (hand-drawn polygon smoothing), not physical seep morphology.
+  * Train on ALL labeled seeps, INCLUDING is_pregrouped == True (changed
+    2026-06-01). Earlier we excluded pregrouped envelopes because their
+    bubble-union area/perim/brightness were envelope-contaminated. With the
+    size axis now carried by the consistent hull_area_m2, and the chip-39
+    pilot showing the envelope brightness offset is small (<=12 of a ~30-pt A/B
+    gap) and benign, pregrouped seeps can stay in -- which matters because the
+    large-hull B regime lives almost entirely in the pregrouped population.
   * Shallow tree (max_depth=3, class_weight='balanced') so the splits read as
     simple thresholds and the tree does not overfit the few hundred labels.
 
@@ -51,7 +58,7 @@ LABELED_IN = os.path.join(PRED_DIR, "gt_seeps_labeled.gpkg")
 PRED_IN = os.path.join(PRED_DIR, "pred_seeps.gpkg")
 PAIRS_IN = os.path.join(PRED_DIR, "seep_level_pairs_cluster.csv")
 
-FEATURES = ["area_m2", "perim_m", "mean_R", "mean_G", "mean_B"]
+FEATURES = ["hull_area_m2", "mean_R", "mean_G", "mean_B"]
 
 
 def _clean_class(s):
@@ -59,11 +66,14 @@ def _clean_class(s):
 
 
 def fit_tree(labeled, max_depth=3, seed=42):
-    """Fit on is_pregrouped==False rows with a non-empty class."""
+    """Fit on all labeled seeps (any is_pregrouped) with a non-empty class.
+
+    Pregrouped envelopes are kept in training now that the size feature is the
+    consistent hull_area_m2 rather than the envelope-contaminated bubble-union
+    area_m2 (see module docstring, 2026-06-01).
+    """
     df = labeled.copy()
     df["class"] = _clean_class(df["class"])
-    if "is_pregrouped" in df.columns:
-        df = df[df["is_pregrouped"].fillna(0).astype(int) == 0]
     df = df[df["class"] != ""]
     missing = [f for f in FEATURES if f not in df.columns]
     if missing:
@@ -176,7 +186,8 @@ def main():
     clf = fit_tree(labeled, max_depth=args.max_depth)
 
     print("\napplying tree:")
-    # Pre-grouped GT seeps: classified but were not used for training (step 6).
+    # Pre-grouped GT seeps written as a convenience subset. They are now part of
+    # training too (2026-06-01); this just emits their predicted_class for review.
     if "is_pregrouped" in labeled.columns:
         pre = labeled[labeled["is_pregrouped"].fillna(0).astype(int) == 1]
         if len(pre):
