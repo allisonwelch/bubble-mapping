@@ -27,7 +27,7 @@ class Configuration:
             f"{REPO_PATH}/data/training/{self.modality}/2026-04-16_UNETxAE"
         )
         self.training_area_fn = "training_areas_no_toolik.gpkg"
-        self.training_polygon_fn = f"labels_full_dataset_no_toolik_{self.modality}.gpkg"
+        self.training_polygon_fn = f"labels_certain_dataset_no_toolik_{self.modality}.gpkg"
         self.training_image_dir = (
             f"{REPO_PATH}/data/training_images/{self.modality}"
         )
@@ -36,10 +36,10 @@ class Configuration:
         self.preprocessed_base_dir = (
             f"{REPO_PATH}/data/preprocessed/"
         )
-        # Reuse UNETxAE chips (full dataset)
+        # certain dataset no toolik
         self.preprocessed_dir = (
             f"{REPO_PATH}/data/preprocessed/"
-            f"2026-04-22_SWINxAE"
+            f"2026-04-27_SWINxAE"
         )
 
         # Checkpointing / logs / results (model + modality subfolders)
@@ -48,11 +48,11 @@ class Configuration:
         # metadata.json lookup uses {state_path}.metadata.json which won't match
         # `.raw.weights.pt`'s naming — that's fine, num_epochs below counts fresh epochs.
         self.continue_model_path = (
-            f"{REPO_PATH}/data/models/SWIN/{self.modality}/20260423-1056_SWINxAE/"
-            f"20260423-1056_SWINxAE.raw.weights.pt"
+            f"{REPO_PATH}/data/models/SWIN/{self.modality}/20260427-1004_SWINxAE/"
+            f"20260427-1004_SWINxAE.raw.weights.pt"
         )
         self.saved_models_dir = (
-            f"{REPO_PATH}/data/models/SWIN/{self.modality}/20260428_SWINxAE_continued"
+            f"{REPO_PATH}/data/models/SWIN/{self.modality}/20260427-1004_SWINxAE_continued"
         )
         self.logs_dir = (
             f"{REPO_PATH}/data/logs/SWIN/{self.modality}"
@@ -108,7 +108,7 @@ class Configuration:
         self.train_batch_size = 8
         # Continuation run from run #5: 50 fresh epochs from warm-started weights.
         # Early stopping (val_dice_coef, patience=15) will gate this if it plateaus.
-        self.num_epochs = 50
+        self.num_epochs = 150
         self.num_training_steps = 500
         #change num_validation_images from 50 to 500 to address undersampling in low quantity training areas
         self.num_validation_images = 500
