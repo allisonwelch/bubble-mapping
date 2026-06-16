@@ -36,23 +36,24 @@ class Configuration:
         self.preprocessed_base_dir = (
             f"{REPO_PATH}/data/preprocessed/"
         )
-        # certain dataset no toolik
+        # certain dataset (no toolik), re-chipped to inherit the canonical
+        # 20260428-1537 train/val/test split (see split_list_path below). Fresh
+        # dir so the old certain-split chips in 2026-04-27_SWINxAE are left intact.
         self.preprocessed_dir = (
             f"{REPO_PATH}/data/preprocessed/"
-            f"2026-04-27_SWINxAE"
+            f"2026-06-16_SWINxAE"
         )
 
         # Checkpointing / logs / results (model + modality subfolders)
-        # Continue from run #5's best raw weights (best seep-F1 of the three saved files
-        # per CLAUDE.md 2026-04-28). starting_epoch will fall back to 0 because the
-        # metadata.json lookup uses {state_path}.metadata.json which won't match
-        # `.raw.weights.pt`'s naming — that's fine, num_epochs below counts fresh epochs.
-        self.continue_model_path = (
-            f"{REPO_PATH}/data/models/SWIN/{self.modality}/20260427-1004_SWINxAE/"
-            f"20260427-1004_SWINxAE.raw.weights.pt"
-        )
+        # Fresh from-scratch run (NO warm-start). Warm-starting from
+        # 20260427-1004 would LEAK: that base was trained under the old certain
+        # split, so its weights have already seen areas now held out as test in
+        # the canonical split. continue_model_path = None trains from random init.
+        self.continue_model_path = None
+        # Fresh, empty dir so evaluation.py's non-recursive glob picks up ONLY
+        # this run's checkpoints (not the old 20260615 continued run).
         self.saved_models_dir = (
-            f"{REPO_PATH}/data/models/SWIN/{self.modality}/20260427-1004_SWINxAE_continued"
+            f"{REPO_PATH}/data/models/SWIN/{self.modality}"
         )
         self.logs_dir = (
             f"{REPO_PATH}/data/logs/SWIN/{self.modality}"
@@ -85,7 +86,15 @@ class Configuration:
 
         # If you already have a train/val/test split you want to reuse, point to the JSON file here
         # Otherwise leave as None and the code will randomly split based on the ratios above
-        self.split_list_path = None  # Optional path to predefined train/val/test split lists
+        # Inherit the canonical 20260428-1537 model's train/val/test split so the
+        # certain-dataset model holds out the SAME areas. Both runs use the same
+        # 58 areas (training_areas_no_toolik.gpkg) and written_area_stems is
+        # numeric-sorted, so this bare-index split maps area-for-area. NOTE: only
+        # takes effect after preprocessing re-runs and propagates it to the
+        # chip-level aa_frames_list.json.
+        self.split_list_path = (
+            f"{REPO_PATH}/data/preprocessed/2026-04-22_SWINxAE/aa_frames_list.json"
+        )
 
         # -------- TRAINING (CORE) --------
         self.patch_size = (448, 448)
@@ -106,8 +115,8 @@ class Configuration:
         self.scheduler = "onecycle"      # NEW: tuned "scheduler" ("none"|"cosine"|"onecycle")
 
         self.train_batch_size = 8
-        # Continuation run from run #5: 50 fresh epochs from warm-started weights.
-        # Early stopping (val_dice_coef, patience=15) will gate this if it plateaus.
+        # Fresh from-scratch run: 150 epochs. The EARLY STOPPING block below is
+        # commented out, so this runs the full 150; uncomment it to gate on plateau.
         self.num_epochs = 150
         self.num_training_steps = 500
         #change num_validation_images from 50 to 500 to address undersampling in low quantity training areas

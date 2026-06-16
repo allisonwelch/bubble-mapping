@@ -1334,3 +1334,29 @@ def preprocess_all(conf):
 
 # Global config holder
 config = None
+
+
+if __name__ == "__main__":
+    import argparse
+    import importlib
+
+    parser = argparse.ArgumentParser(
+        description="Preprocess training areas into chips for a given config."
+    )
+    parser.add_argument(
+        "--config",
+        required=True,
+        help="Dotted module path to a config (e.g. 'config.configSwinUnet').",
+    )
+    parser.add_argument(
+        "--arch",
+        required=False,
+        choices=["unet", "swin", "tm"],
+        help="Accepted for parity with training.py/evaluation.py; preprocessing "
+        "is architecture-agnostic, so this is ignored.",
+    )
+    args = parser.parse_args()
+
+    conf = importlib.import_module(args.config).Configuration().validate()
+    preprocess_all(conf)
+
