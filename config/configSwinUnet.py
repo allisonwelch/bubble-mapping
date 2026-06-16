@@ -36,6 +36,11 @@ class Configuration:
         self.preprocessed_base_dir = (
             f"{REPO_PATH}/data/preprocessed/"
         )
+        # Base dir for the chip sub-tiles. preprocessing.py derives the chips dir
+        # as {training_data_base_dir}/{basename(preprocessed_dir)} (line 879).
+        self.training_data_base_dir = (
+            f"{REPO_PATH}/data/training_data/"
+        )
         # certain dataset (no toolik), re-chipped to inherit the canonical
         # 20260428-1537 train/val/test split (see split_list_path below). Fresh
         # dir so the old certain-split chips in 2026-04-27_SWINxAE are left intact.
@@ -53,7 +58,7 @@ class Configuration:
         # Fresh, empty dir so evaluation.py's non-recursive glob picks up ONLY
         # this run's checkpoints (not the old 20260615 continued run).
         self.saved_models_dir = (
-            f"{REPO_PATH}/data/models/SWIN/{self.modality}"
+            f"{REPO_PATH}/data/models/SWIN/{self.modality}/certain_cannonsplit_20260616_SWINxAE"
         )
         self.logs_dir = (
             f"{REPO_PATH}/data/logs/SWIN/{self.modality}"
