@@ -117,7 +117,7 @@ class Configuration:
         self.train_batch_size = 8
         # Fresh from-scratch run: 150 epochs. The EARLY STOPPING block below is
         # commented out, so this runs the full 150; uncomment it to gate on plateau.
-        self.num_epochs = 150
+        self.num_epochs = 100
         self.num_training_steps = 500
         #change num_validation_images from 50 to 500 to address undersampling in low quantity training areas
         self.num_validation_images = 500
