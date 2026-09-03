@@ -1,0 +1,2437 @@
+{
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/archive/20260512_snow_mask/gt_seeps.gpkg": {
+  "gt_seeps": {
+   "n_rows": 2610,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "class"
+   ],
+   "geom_sha": "929a3ddef8cde530"
+  }
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/archive/20260512_snow_mask/pred_seeps.gpkg": {
+  "pred_seeps": {
+   "n_rows": 2444,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "cluster_id",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "n_bubbles",
+    "has_anchor",
+    "is_lonely_cluster",
+    "anchor_area_m2",
+    "total_area_m2",
+    "max_area_m2",
+    "mean_area_m2",
+    "std_area_m2",
+    "area_ratio_max_to_mean",
+    "cluster_radius_m",
+    "mean_circularity_weighted",
+    "mean_solidity_weighted",
+    "mean_eccentricity_weighted"
+   ],
+   "geom_sha": "7f92df5718e72bf6"
+  }
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/archive/20260512_snow_mask_old/gt_seeps.gpkg": {
+  "gt_seeps": {
+   "n_rows": 2610,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "class"
+   ],
+   "geom_sha": "929a3ddef8cde530"
+  }
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/archive/20260512_snow_mask_old/pred_seeps.gpkg": {
+  "pred_seeps": {
+   "n_rows": 2583,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "cluster_id",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "n_bubbles",
+    "has_anchor",
+    "is_lonely_cluster",
+    "anchor_area_m2",
+    "total_area_m2",
+    "max_area_m2",
+    "mean_area_m2",
+    "std_area_m2",
+    "area_ratio_max_to_mean",
+    "cluster_radius_m",
+    "mean_circularity_weighted",
+    "mean_solidity_weighted",
+    "mean_eccentricity_weighted"
+   ],
+   "geom_sha": "12c475fcaef241d5"
+  }
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/archive/pre-20260514/gt_seeps.gpkg": {
+  "gt_seeps": {
+   "n_rows": 3105,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "class"
+   ],
+   "geom_sha": "44b71a8e5a26fffe"
+  }
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/archive/pre-20260514/pred_seeps.gpkg": {
+  "pred_seeps": {
+   "n_rows": 2698,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "cluster_id",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "n_bubbles",
+    "has_anchor",
+    "is_lonely_cluster",
+    "anchor_area_m2",
+    "total_area_m2",
+    "max_area_m2",
+    "mean_area_m2",
+    "std_area_m2",
+    "area_ratio_max_to_mean",
+    "cluster_radius_m",
+    "mean_circularity_weighted",
+    "mean_solidity_weighted",
+    "mean_eccentricity_weighted"
+   ],
+   "geom_sha": "227bb916ca5a4aa0"
+  }
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/gt_seeps.gpkg": {
+  "gt_seeps": {
+   "n_rows": 3105,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "class"
+   ],
+   "geom_sha": "ff16e6cfb8ddf8c4"
+  }
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_classified_20260624/gt_seeps_label_chip39.gpkg": {
+  "gt_seeps_label_chip39": {
+   "n_rows": 1585,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped"
+   ],
+   "geom_sha": "4b18742a26dbac54"
+  }
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_classified_20260624/gt_seeps_label_chip39_classified.gpkg": {
+  "gt_seeps_label_chip39_classified": {
+   "n_rows": 406,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped"
+   ],
+   "geom_sha": "e41e1095eea86c98"
+  }
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_classified_20260624/gt_seeps_label_labeler_1.gpkg": {
+  "gt_seeps_label_labeler_1": {
+   "n_rows": 300,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "seep_group_id",
+    "is_pregrouped"
+   ],
+   "geom_sha": "b5aa342cda43690c"
+  },
+  "layer_styles": {
+   "n_rows": 1,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "gt_seeps_label_labeler_1",
+    28472
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_classified_20260624/gt_seeps_label_labeler_2.gpkg": {
+  "gt_seeps_label_labeler_2": {
+   "n_rows": 300,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "seep_group_id",
+    "is_pregrouped"
+   ],
+   "geom_sha": "1ef9b631605d8bea"
+  },
+  "layer_styles": {
+   "n_rows": 1,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "gt_seeps_label_labeler_2",
+    28472
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_classified_20260624/gt_seeps_label_labeler_3.gpkg": {
+  "gt_seeps_label_labeler_3": {
+   "n_rows": 300,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "comments",
+    "seep_group_id",
+    "is_pregrouped"
+   ],
+   "geom_sha": "23b4aeaf7aae08c6"
+  },
+  "layer_styles": {
+   "n_rows": 1,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "gt_seeps_label_labeler_3",
+    28472
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_classified_20260624/gt_seeps_label_labeler_allison.gpkg": {
+  "gt_seeps_label_labeler_3": {
+   "n_rows": 300,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "comments"
+   ],
+   "geom_sha": "23b4aeaf7aae08c6"
+  },
+  "layer_styles": {
+   "n_rows": 1,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "gt_seeps_label_labeler_3",
+    28472
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_classified_20260624/gt_seeps_label_labeler_katey.gpkg": {
+  "gt_seeps_label_labeler_1": {
+   "n_rows": 300,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "comments"
+   ],
+   "geom_sha": "b5aa342cda43690c"
+  },
+  "layer_styles": {
+   "n_rows": 1,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "gt_seeps_label_labeler_1",
+    28472
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_classified_20260624/gt_seeps_label_master.gpkg": {
+  "gt_seeps_label_master": {
+   "n_rows": 900,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "seep_group_id",
+    "is_pregrouped"
+   ],
+   "geom_sha": "d3b66937e456ac1b"
+  },
+  "layer_styles": {
+   "n_rows": 1,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "gt_seeps_label_master",
+    28472
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_classified_20260624/gt_seeps_label_quarters_allison.gpkg": {
+  "labels": {
+   "n_rows": 1240,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "unit",
+    "is_context",
+    "notes"
+   ],
+   "geom_sha": "c7204b4bf2423f90"
+  },
+  "layer_styles": {
+   "n_rows": 3,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "black_outline",
+    745
+   ],
+   [
+    "gt_seeps_label_quarters",
+    32168
+   ],
+   [
+    "labels",
+    32843
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_classified_20260624/gt_seeps_label_quarters_katey.gpkg": {
+  "labels": {
+   "n_rows": 1163,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "unit",
+    "is_context",
+    "notes"
+   ],
+   "geom_sha": "bda05a4373a70bfe"
+  },
+  "layer_styles": {
+   "n_rows": 2,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "black_outline",
+    745
+   ],
+   [
+    "gt_seeps_label_quarters",
+    32712
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_classified_20260624/gt_seeps_label_quarters_katey_grouped.gpkg": {
+  "labels": {
+   "n_rows": 1163,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "unit",
+    "is_context",
+    "notes"
+   ],
+   "geom_sha": "bda05a4373a70bfe"
+  },
+  "layer_styles": {
+   "n_rows": 2,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "black_outline",
+    745
+   ],
+   [
+    "gt_seeps_label_quarters",
+    32712
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_classified_20260624/gt_seeps_label_quarters_katey_kwa.gpkg": {
+  "labels": {
+   "n_rows": 1163,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "unit",
+    "is_context",
+    "notes"
+   ],
+   "geom_sha": "bda05a4373a70bfe"
+  },
+  "layer_styles": {
+   "n_rows": 2,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "black_outline",
+    745
+   ],
+   [
+    "gt_seeps_label_quarters",
+    32712
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_classified_20260624/gt_seeps_label_quarters_katey_kwa_grouped - Copy.gpkg": {
+  "labels": {
+   "n_rows": 1163,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "unit",
+    "is_context",
+    "notes",
+    "seep_group_id_pred",
+    "group_source"
+   ],
+   "geom_sha": "bda05a4373a70bfe"
+  },
+  "layer_styles": {
+   "n_rows": 3,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "black_outline",
+    745
+   ],
+   [
+    "gt_seeps_label_quarters",
+    32712
+   ],
+   [
+    "group_hull_by_class",
+    3230
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_classified_20260624/gt_seeps_label_quarters_prajna.gpkg": {
+  "labels": {
+   "n_rows": 978,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "unit",
+    "is_context",
+    "notes"
+   ],
+   "geom_sha": "a1b40b84e0c0ba83"
+  },
+  "layer_styles": {
+   "n_rows": 3,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "black_outline",
+    745
+   ],
+   [
+    "gt_seeps_label_quarters",
+    32839
+   ],
+   [
+    "labels",
+    32839
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_group_fields_20260529-121656/gt_seeps_label_labeler_1.gpkg": {
+  "gt_seeps_label_labeler_1": {
+   "n_rows": 300,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B"
+   ],
+   "geom_sha": "b5aa342cda43690c"
+  },
+  "layer_styles": {
+   "n_rows": 1,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "gt_seeps_label_labeler_1",
+    28472
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_group_fields_20260529-121656/gt_seeps_label_labeler_2.gpkg": {
+  "gt_seeps_label_labeler_2": {
+   "n_rows": 300,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B"
+   ],
+   "geom_sha": "1ef9b631605d8bea"
+  },
+  "layer_styles": {
+   "n_rows": 1,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "gt_seeps_label_labeler_2",
+    28472
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_group_fields_20260529-121656/gt_seeps_label_labeler_3.gpkg": {
+  "gt_seeps_label_labeler_3": {
+   "n_rows": 300,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "comments"
+   ],
+   "geom_sha": "23b4aeaf7aae08c6"
+  },
+  "layer_styles": {
+   "n_rows": 1,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "gt_seeps_label_labeler_3",
+    28472
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_group_fields_20260529-121656/gt_seeps_label_master.gpkg": {
+  "gt_seeps_label_master": {
+   "n_rows": 900,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B"
+   ],
+   "geom_sha": "d3b66937e456ac1b"
+  },
+  "layer_styles": {
+   "n_rows": 1,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "gt_seeps_label_master",
+    28472
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_group_fields_20260529-121951/gt_seeps_label_labeler_1.gpkg": {
+  "gt_seeps_label_labeler_1": {
+   "n_rows": 300,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "seep_group_id",
+    "is_pregrouped"
+   ],
+   "geom_sha": "b5aa342cda43690c"
+  },
+  "layer_styles": {
+   "n_rows": 1,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "gt_seeps_label_labeler_1",
+    28472
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_group_fields_20260529-121951/gt_seeps_label_labeler_2.gpkg": {
+  "gt_seeps_label_labeler_2": {
+   "n_rows": 300,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B"
+   ],
+   "geom_sha": "1ef9b631605d8bea"
+  },
+  "layer_styles": {
+   "n_rows": 1,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "gt_seeps_label_labeler_2",
+    28472
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_group_fields_20260529-121951/gt_seeps_label_labeler_3.gpkg": {
+  "gt_seeps_label_labeler_3": {
+   "n_rows": 300,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "comments"
+   ],
+   "geom_sha": "23b4aeaf7aae08c6"
+  },
+  "layer_styles": {
+   "n_rows": 1,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "gt_seeps_label_labeler_3",
+    28472
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/backup_pre_group_fields_20260529-121951/gt_seeps_label_master.gpkg": {
+  "gt_seeps_label_master": {
+   "n_rows": 900,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B"
+   ],
+   "geom_sha": "d3b66937e456ac1b"
+  },
+  "layer_styles": {
+   "n_rows": 1,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "gt_seeps_label_master",
+    28472
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/final_labeler_packs/gt_seeps_label_quarters_allison_grouped.gpkg": {
+  "labels": {
+   "n_rows": 1240,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "unit",
+    "is_context",
+    "notes",
+    "seep_group_id_pred",
+    "group_source"
+   ],
+   "geom_sha": "c7204b4bf2423f90"
+  },
+  "layer_styles": {
+   "n_rows": 4,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "black_outline",
+    745
+   ],
+   [
+    "gt_seeps_label_quarters",
+    32168
+   ],
+   [
+    "labels",
+    32843
+   ],
+   [
+    "group_hull_by_class",
+    3230
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/final_labeler_packs/gt_seeps_label_quarters_katey_grouped.gpkg": {
+  "labels": {
+   "n_rows": 1163,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "unit",
+    "is_context",
+    "notes",
+    "seep_group_id_pred",
+    "group_source"
+   ],
+   "geom_sha": "bda05a4373a70bfe"
+  },
+  "layer_styles": {
+   "n_rows": 3,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "black_outline",
+    745
+   ],
+   [
+    "gt_seeps_label_quarters",
+    32712
+   ],
+   [
+    "group_hull_by_class",
+    3230
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/final_labeler_packs/gt_seeps_label_quarters_prajna_grouped.gpkg": {
+  "labels": {
+   "n_rows": 978,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "unit",
+    "is_context",
+    "notes",
+    "seep_group_id_pred",
+    "group_source",
+    "class_labeler"
+   ],
+   "geom_sha": "a1b40b84e0c0ba83"
+  },
+  "layer_styles": {
+   "n_rows": 4,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "black_outline",
+    745
+   ],
+   [
+    "gt_seeps_label_quarters",
+    32839
+   ],
+   [
+    "labels",
+    32839
+   ],
+   [
+    "group_hull_by_class",
+    3230
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/gt_seeps_label_all_chips.gpkg": {
+  "labels": {
+   "n_rows": 18762,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "unit",
+    "is_context",
+    "notes"
+   ],
+   "geom_sha": "699aee8e19273b83"
+  }
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/gt_seeps_label_all_chips_grouped.gpkg": {
+  "labels": {
+   "n_rows": 18762,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "unit",
+    "is_context",
+    "notes",
+    "seep_group_id_pred",
+    "group_source"
+   ],
+   "geom_sha": "699aee8e19273b83"
+  },
+  "seep_hulls": {
+   "n_rows": 11888,
+   "cols": [
+    "fid",
+    "geom",
+    "seep_uid",
+    "image",
+    "seep_group_id",
+    "class",
+    "class_mixed",
+    "n_bubbles",
+    "hull_area_m2",
+    "bubble_area_m2",
+    "fill_ratio",
+    "major_axis_m",
+    "minor_axis_m",
+    "is_pregrouped",
+    "is_overgrouped",
+    "is_context",
+    "group_source"
+   ],
+   "geom_sha": "c91c9af1f9e948fe"
+  },
+  "_styles": [
+   [
+    "group_hull_by_class",
+    3230
+   ],
+   [
+    "seep_hulls_by_class",
+    2113
+   ],
+   [
+    "bubbles_plain",
+    990
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/gt_seeps_label_all_chips_grouped.pre_hulls_20260729-130809.gpkg": {
+  "labels": {
+   "n_rows": 18762,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "unit",
+    "is_context",
+    "notes",
+    "seep_group_id_pred",
+    "group_source"
+   ],
+   "geom_sha": "699aee8e19273b83"
+  },
+  "_styles": [
+   [
+    "group_hull_by_class",
+    3230
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/gt_seeps_label_eval_chips.gpkg": {
+  "labels": {
+   "n_rows": 3109,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "unit",
+    "is_context",
+    "notes"
+   ],
+   "geom_sha": "4027f45da5e3c1f6"
+  }
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/gt_seeps_label_eval_chips_grouped.gpkg": {
+  "labels": {
+   "n_rows": 3109,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "unit",
+    "is_context",
+    "notes",
+    "seep_group_id_pred",
+    "group_source"
+   ],
+   "geom_sha": "4027f45da5e3c1f6"
+  },
+  "_styles": [
+   [
+    "group_hull_by_class",
+    3230
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/gt_seeps_label_quarters_katey_grouped.gpkg": {
+  "labels": {
+   "n_rows": 1163,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "unit",
+    "is_context",
+    "notes",
+    "seep_group_id_pred",
+    "group_source"
+   ],
+   "geom_sha": "bda05a4373a70bfe"
+  },
+  "layer_styles": {
+   "n_rows": 3,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "black_outline",
+    745
+   ],
+   [
+    "gt_seeps_label_quarters",
+    32712
+   ],
+   [
+    "group_hull_by_class",
+    3230
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/gt_seeps_label_quarters_prajna_grouped_archive/gt_seeps_label_quarters_prajna_grouped.gpkg": {
+  "labels": {
+   "n_rows": 978,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "unit",
+    "is_context",
+    "notes",
+    "seep_group_id_pred",
+    "group_source"
+   ],
+   "geom_sha": "a1b40b84e0c0ba83"
+  },
+  "layer_styles": {
+   "n_rows": 4,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "black_outline",
+    745
+   ],
+   [
+    "gt_seeps_label_quarters",
+    32839
+   ],
+   [
+    "labels",
+    32839
+   ],
+   [
+    "group_hull_by_class",
+    3230
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/gt_seeps_label_validation.gpkg": {
+  "labels": {
+   "n_rows": 4077,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "unit",
+    "is_context",
+    "notes"
+   ],
+   "geom_sha": "34d21f88b132ce96"
+  }
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/gt_seeps_label_validation_grouped.gpkg": {
+  "labels": {
+   "n_rows": 4077,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "seep_id",
+    "class",
+    "seep_group_id",
+    "is_pregrouped",
+    "is_overgrouped",
+    "labeler",
+    "is_calibration",
+    "area_bin",
+    "area_label",
+    "sol_bin",
+    "sol_label",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "unit",
+    "is_context",
+    "notes",
+    "seep_group_id_pred",
+    "group_source"
+   ],
+   "geom_sha": "34d21f88b132ce96"
+  },
+  "_styles": [
+   [
+    "group_hull_by_class",
+    3230
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/pred_bubbles_grouped.gpkg": {
+  "labels": {
+   "n_rows": 3388,
+   "cols": [
+    "fid",
+    "geom",
+    "bubble_id",
+    "seep_group_id",
+    "area_m2",
+    "image",
+    "class"
+   ],
+   "geom_sha": "06b5659c24752e28"
+  },
+  "_styles": [
+   [
+    "group_hull_by_class",
+    2666
+   ]
+  ]
+ },
+ "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/pred_seeps.gpkg": {
+  "pred_seeps": {
+   "n_rows": 2698,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "cluster_id",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "n_bubbles",
+    "has_anchor",
+    "is_lonely_cluster",
+    "anchor_area_m2",
+    "total_area_m2",
+    "max_area_m2",
+    "mean_area_m2",
+    "std_area_m2",
+    "area_ratio_max_to_mean",
+    "cluster_radius_m",
+    "mean_circularity_weighted",
+    "mean_solidity_weighted",
+    "mean_eccentricity_weighted"
+   ],
+   "geom_sha": "227bb916ca5a4aa0"
+  }
+ },
+ "data/results/SWIN/AE/20260616-2110_SWINxAE.weights/pred_seeps.gpkg": {
+  "pred_seeps": {
+   "n_rows": 2702,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "cluster_id",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "n_bubbles",
+    "has_anchor",
+    "is_lonely_cluster",
+    "anchor_area_m2",
+    "total_area_m2",
+    "max_area_m2",
+    "mean_area_m2",
+    "std_area_m2",
+    "area_ratio_max_to_mean",
+    "cluster_radius_m",
+    "mean_circularity_weighted",
+    "mean_solidity_weighted",
+    "mean_eccentricity_weighted",
+    "hull_area_m2"
+   ],
+   "geom_sha": "92e38bdd9d54a4b3"
+  }
+ },
+ "data/results/SWIN/AE/20260616-2110_SWINxAE/pred_seeps.gpkg": {
+  "pred_seeps": {
+   "n_rows": 2743,
+   "cols": [
+    "fid",
+    "geom",
+    "image",
+    "cluster_id",
+    "centroid_x_m",
+    "centroid_y_m",
+    "area_m2",
+    "perim_m",
+    "circularity",
+    "solidity",
+    "eccentricity",
+    "mean_R",
+    "mean_G",
+    "mean_B",
+    "n_bubbles",
+    "has_anchor",
+    "is_lonely_cluster",
+    "anchor_area_m2",
+    "total_area_m2",
+    "max_area_m2",
+    "mean_area_m2",
+    "std_area_m2",
+    "area_ratio_max_to_mean",
+    "cluster_radius_m",
+    "mean_circularity_weighted",
+    "mean_solidity_weighted",
+    "mean_eccentricity_weighted",
+    "hull_area_m2"
+   ],
+   "geom_sha": "675412f0d34cd4bc"
+  }
+ },
+ "data/training/AE/2026-03-26_UNETxAE/labels_certain_dataset_AE.gpkg": {
+  "labels_certain_dataset_AE": {
+   "n_rows": 6727,
+   "cols": [
+    "fid",
+    "geom",
+    "group_ulid",
+    "N_GM",
+    "id",
+    "Area",
+    "N_FG",
+    "N_BG",
+    "BBox",
+    "Ambiguity",
+    "layer",
+    "path"
+   ],
+   "geom_sha": "abecde057c39a04e"
+  }
+ },
+ "data/training/AE/2026-03-26_UNETxAE/labels_full_dataset_AE.gpkg": {
+  "labels_full_dataset_AE": {
+   "n_rows": 10794,
+   "cols": [
+    "fid",
+    "geom",
+    "group_ulid",
+    "N_GM",
+    "id",
+    "Area",
+    "N_FG",
+    "N_BG",
+    "BBox",
+    "Ambiguity",
+    "layer",
+    "path"
+   ],
+   "geom_sha": "1cfa570ce50e1636"
+  }
+ },
+ "data/training/AE/2026-03-26_UNETxAE/training_areas.gpkg": {
+  "AOI_all": {
+   "n_rows": 39,
+   "cols": [
+    "fid",
+    "geom",
+    "id",
+    "image_link"
+   ],
+   "geom_sha": "f165c8bbc6212f83"
+  }
+ },
+ "data/training/AE/2026-04-16_UNETxAE/labels_certain_dataset_AE.gpkg": {
+  "labels_certain_dataset_AE": {
+   "n_rows": 14618,
+   "cols": [
+    "fid",
+    "geom",
+    "group_ulid",
+    "N_GM",
+    "id",
+    "Area",
+    "N_FG",
+    "N_BG",
+    "BBox",
+    "Ambiguity",
+    "layer",
+    "path"
+   ],
+   "geom_sha": "38b91a5149eb1945"
+  }
+ },
+ "data/training/AE/2026-04-16_UNETxAE/labels_certain_dataset_no_toolik_AE.gpkg": {
+  "labels_certain_dataset_no_toolik_AE": {
+   "n_rows": 14326,
+   "cols": [
+    "fid",
+    "geom",
+    "group_ulid",
+    "N_GM",
+    "id",
+    "Area",
+    "N_FG",
+    "N_BG",
+    "BBox",
+    "Ambiguity",
+    "layer",
+    "path"
+   ],
+   "geom_sha": "c29ca05bf072e7fc"
+  }
+ },
+ "data/training/AE/2026-04-16_UNETxAE/labels_full_dataset_AE.gpkg": {
+  "labels_full_dataset_AE": {
+   "n_rows": 19159,
+   "cols": [
+    "fid",
+    "geom",
+    "group_ulid",
+    "N_GM",
+    "id",
+    "Area",
+    "N_FG",
+    "N_BG",
+    "BBox",
+    "Ambiguity",
+    "layer",
+    "path"
+   ],
+   "geom_sha": "5a559ac3738bbb6d"
+  }
+ },
+ "data/training/AE/2026-04-16_UNETxAE/labels_full_dataset_no_toolik_AE.gpkg": {
+  "labels_full_dataset_no_toolik_AE": {
+   "n_rows": 18785,
+   "cols": [
+    "fid",
+    "geom",
+    "group_ulid",
+    "N_GM",
+    "id",
+    "Area",
+    "N_FG",
+    "N_BG",
+    "BBox",
+    "Ambiguity",
+    "layer",
+    "path"
+   ],
+   "geom_sha": "03a3240c3db9db41"
+  }
+ },
+ "data/training/AE/2026-04-16_UNETxAE/training_areas.gpkg": {
+  "all_training_areas": {
+   "n_rows": 85,
+   "cols": [
+    "fid",
+    "geom",
+    "id",
+    "image_link"
+   ],
+   "geom_sha": "084cbc889fbe261d"
+  },
+  "layer_styles": {
+   "n_rows": 1,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "all_training_areas",
+    16555
+   ]
+  ]
+ },
+ "data/training/AE/2026-04-16_UNETxAE/training_areas_no_toolik.gpkg": {
+  "all_training_areas": {
+   "n_rows": 58,
+   "cols": [
+    "fid",
+    "geom",
+    "id",
+    "image_link"
+   ],
+   "geom_sha": "31032752aa60b6b6"
+  },
+  "layer_styles": {
+   "n_rows": 1,
+   "cols": [
+    "id",
+    "f_table_catalog",
+    "f_table_schema",
+    "f_table_name",
+    "f_geometry_column",
+    "styleName",
+    "styleQML",
+    "styleSLD",
+    "useAsDefault",
+    "description",
+    "owner",
+    "ui",
+    "update_time"
+   ],
+   "geom_sha": null
+  },
+  "_styles": [
+   [
+    "all_training_areas",
+    16555
+   ]
+  ]
+ }
+}

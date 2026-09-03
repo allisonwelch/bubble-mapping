@@ -31,3 +31,5 @@ renv.lock
 /Rproj
 .Rproj.user
 .positai
+HANDOFF_naming_cleanup.md
+.mcp.json
