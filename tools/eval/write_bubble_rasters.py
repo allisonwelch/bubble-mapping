@@ -1,7 +1,7 @@
-# tools/write_seep_rasters.py
+# tools/eval/write_bubble_rasters.py
 """
 Write seep post-processing rasters (_smoothed.tif and _cc.tif) for each prediction
-in a directory. Standalone-runnable, also importable from seep_level_eval.py.
+in a directory. Standalone-runnable, also importable from bubble_level_eval.py.
 
 Smoothing: morphological closing + opening with disk(1) per CLAUDE.md 2026-04-28.
 """
@@ -89,7 +89,7 @@ def write_rasters_for_pred(pred_fp, smoothed=None, cc=None, profile=None,
     responsible for ensuring it exists).
 
     If smoothed / cc / profile are supplied, they're reused — lets a caller that
-    already computed them (e.g. seep_level_eval.main) avoid re-reading pred_fp.
+    already computed them (e.g. bubble_level_eval.main) avoid re-reading pred_fp.
     """
     if smoothed is None or profile is None:
         with rasterio.open(pred_fp) as src:
@@ -131,7 +131,6 @@ def write_rasters_for_dir(pred_dir):
 
 if __name__ == "__main__":
     import sys
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
     from config import configSwinUnet
     config = configSwinUnet.Configuration().validate()
     ckpt_pred_dir = os.path.join(config.results_dir, "20260428-1537_SWINxAE.weights")

@@ -19,7 +19,7 @@ Three levers are tested independently so their contributions are separable:
      their flux rate tells the model that B and C errors are the expensive
      ones. This is the lever most aligned with what the paper reports.
 
-All scoring is grouped-CV on physical seep (see seep_fit_class_tree_labelers)
+All scoring is grouped-CV on physical seep (see fit_classifier)
 so the shared calibration units cannot leak between train and test.
 """
 
@@ -33,22 +33,21 @@ import warnings
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from seep_fit_class_tree_labelers import (  # noqa: E402
+from tools.classify.fit_classifier import (
     CLASSES, FLUX_RATE, LABELERS, assign_phys_id, dissolve_to_seeps, load_pack)
 
-import geopandas as gpd  # noqa: E402
-from shapely.ops import unary_union  # noqa: E402
-from sklearn.ensemble import (ExtraTreesClassifier,  # noqa: E402
+import geopandas as gpd
+from shapely.ops import unary_union
+from sklearn.ensemble import (ExtraTreesClassifier,
                               GradientBoostingClassifier,
                               RandomForestClassifier)
-from sklearn.linear_model import LogisticRegression  # noqa: E402
-from sklearn.metrics import classification_report, confusion_matrix  # noqa: E402
-from sklearn.model_selection import GroupKFold, cross_val_predict  # noqa: E402
-from sklearn.pipeline import make_pipeline  # noqa: E402
-from sklearn.preprocessing import StandardScaler  # noqa: E402
-from sklearn.tree import DecisionTreeClassifier  # noqa: E402
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.model_selection import GroupKFold, cross_val_predict
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.tree import DecisionTreeClassifier
 
 warnings.filterwarnings("ignore")
 

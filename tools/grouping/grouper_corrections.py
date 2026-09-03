@@ -1,7 +1,7 @@
 """Turn returned (labeler-edited) grouper packs into correction records +
 agreement stats for FUTURE tuning of the learned pairwise 'same-seep?' grouper.
 
-INPUT: packs deployed by seep_grouper_deploy.py >= the snapshot update, i.e.
+INPUT: packs deployed by deploy_grouper.py >= the snapshot update, i.e.
 carrying
   * seep_group_id       -- the labeler's FINAL grouping (edited in QGIS),
   * seep_group_id_pred  -- the FROZEN model proposal at deploy time,
@@ -36,7 +36,7 @@ OUTPUTS (to --out-dir):
 
 NOTE: the three EXISTING quarter packs were grouped BEFORE the snapshot column
 was added, so they have no seep_group_id_pred -- this tool is for packs deployed
-with the updated seep_grouper_deploy.py. It warns and skips a pack that lacks
+with the updated deploy_grouper.py. It warns and skips a pack that lacks
 the snapshot.
 
 ID-NAMESPACE: groups are only unique within an image; every key here is the
@@ -44,7 +44,7 @@ ID-NAMESPACE: groups are only unique within an image; every key here is the
 within each image only, so cross-image id reuse can never create a spurious pair.
 
 Usage:
-  python tools/seep_grouper_corrections.py PACK1_grouped.gpkg [PACK2 ...] \
+  python -m tools.grouping.grouper_corrections PACK1_grouped.gpkg [PACK2 ...] \
          [--out-dir DIR] [--corrected-weight 3.0] [--model-as-rater]
 """
 import os
@@ -54,9 +54,8 @@ import argparse
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from seep_pairwise_grouper_quarters import CAND_RADIUS, FEATURES  # noqa: E402
-from seep_grouper_deploy import _pair_features                    # noqa: E402
+from tools.grouping.train_grouper import CAND_RADIUS, FEATURES
+from tools.grouping.deploy_grouper import _pair_features
 
 SNAP_COL = "seep_group_id_pred"
 READ_COLS = ("fid, image, seep_id, "

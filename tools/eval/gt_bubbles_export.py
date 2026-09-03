@@ -1,4 +1,4 @@
-# tools/gt_seeps_export.py
+# tools/eval/gt_bubbles_export.py
 """
 Export per-chip ground-truth seeps to a single labelable vector layer,
 PRESERVING the original drawn polygon shapes.
@@ -24,8 +24,7 @@ import glob
 import argparse
 from tqdm import tqdm
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from seep_feature_table import (
+from tools.eval.bubble_features import (
     build_gt_seeps_from_source,
     write_seeps_gpkg,
     _AUX_SUFFIXES,
@@ -55,7 +54,7 @@ def main(chip_dir, out_dir, source_polygons_fp,
     Scope of which chips to include is controlled by `pred_dir`:
       - If pred_dir is given, only chips whose basename matches a prediction
         .tif in pred_dir are processed. This is the canonical convention
-        (matches what seep_level_eval.py writes) -- gt_seeps reflects the
+        (matches what bubble_level_eval.py writes) -- gt_seeps reflects the
         TEST SET that was evaluated.
       - If pred_dir is None, walks every chip in chip_dir. Use only when you
         intentionally want GT polygons for all chips (train+val+test).
@@ -131,7 +130,6 @@ if __name__ == "__main__":
     # Only load config when at least one CLI arg is missing -- skipping config
     # avoids validate() failures on machines whose REPO_PATH doesn't match.
     if not (args.chip_dir and args.out_dir and args.source_polygons):
-        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
         from config import configSwinUnet
         config = configSwinUnet.Configuration().validate()
         chip_dir = args.chip_dir or config.preprocessed_dir

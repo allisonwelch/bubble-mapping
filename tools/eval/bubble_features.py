@@ -1,4 +1,4 @@
-# tools/seep_feature_table.py
+# tools/eval/bubble_features.py
 """
 Per-BUBBLE feature tables for detected bubbles, and ground-truth bubble
 polygons rebuilt from the original drawn shapes.
@@ -6,9 +6,9 @@ polygons rebuilt from the original drawn shapes.
 A "bubble" here is one connected component of the smoothed prediction, or one
 hand-drawn ground-truth polygon. Nothing in this module is a *seep*: bubbles
 become seeps only after the learned pairwise grouper runs
-(tools/seep_grouper_*.py). See the naming convention in CLAUDE.md.
+(tools/grouping/). See the naming convention in CLAUDE.md.
 
-Inputs (already on disk after evaluation + write_seep_rasters):
+Inputs (already on disk after evaluation + write_bubble_rasters):
   - {stem}_cc.tif      per-bubble connected components (uint16/uint32)
   - {basename}.tif     matching chip in chip_dir (RGB bands for brightness)
 
@@ -271,7 +271,7 @@ def _load_inputs(pred_fp, chip_fp):
     if not os.path.exists(cc_fp):
         raise FileNotFoundError(
             f"_cc.tif missing for {os.path.basename(pred_fp)}: {cc_fp}\n"
-            f"Run tools/write_seep_rasters.py first to generate per-bubble CCs."
+            f"Run tools/eval/write_bubble_rasters.py first to generate per-bubble CCs."
         )
     with rasterio.open(cc_fp) as src:
         cc = src.read(1).astype(np.int64)

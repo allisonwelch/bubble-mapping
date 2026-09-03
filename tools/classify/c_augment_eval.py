@@ -29,11 +29,11 @@ original chip leaves every enrichment row in train, by construction.
 
 Model is the 2026-07-29 deploy point: class_weight='balanced' RandomForest(500,
 min_samples_leaf=2) on the RICH 13 features. Grouping/CV discipline (phys_id
-union-find) is inherited from seep_fit_class_tree_labelers.
+union-find) is inherited from fit_classifier.
 
 Usage:
-  python tools/seep_c_augment_eval.py                       # uses the default pack
-  python tools/seep_c_augment_eval.py --augment-pack PACK.gpkg
+  python -m tools.classify.c_augment_eval                       # uses the default pack
+  python -m tools.classify.c_augment_eval --augment-pack PACK.gpkg
 """
 from __future__ import annotations
 
@@ -45,17 +45,16 @@ import warnings
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import geopandas as gpd  # noqa: E402
-from sklearn.ensemble import RandomForestClassifier  # noqa: E402
-from sklearn.metrics import classification_report, confusion_matrix  # noqa: E402
-from sklearn.model_selection import GroupKFold  # noqa: E402
+import geopandas as gpd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.model_selection import GroupKFold
 
-from seep_fit_class_tree_labelers import (  # noqa: E402
+from tools.classify.fit_classifier import (
     CLASSES, FLUX_RATE, FLUX_SIGMA, LABELERS, assign_phys_id,
     dissolve_to_seeps, load_pack)
-from seep_class_model_comparison import RICH, enrich  # noqa: E402
+from tools.classify.model_comparison import RICH, enrich
 
 warnings.filterwarnings("ignore")
 

@@ -35,7 +35,6 @@ Using pixi tasks (from your `pixi.toml`):
 
 ```toml
 [tasks]
-start = "python ./tools/temp.py"
 unet  = "python ./mainUnet.py"
 swin  = "python ./mainSwinUnet.py"
 terra = "python ./mainTerramind.py"
@@ -119,8 +118,20 @@ The script will:
 │  ├─ split_frames.py      # split_dataset(), stats
 │  ├─ dataset_generator.py # iterable patch generator
 │  └─ frame_info.py        # FrameInfo container, normalization utils
-└─ tools/
-   └─ temp.py              # random tools used for other unrelated stuff
+└─ tools/                  # post-inference pipeline (see tools/README.md)
+   ├─ eval/                # pixel -> BUBBLE detection metrics
+   ├─ labeling/            # build + maintain QGIS labeler packs
+   ├─ grouping/            # bubble -> SEEP (learned random-forest grouper)
+   ├─ classify/            # per-seep A/B/C class + count-based flux
+   ├─ viz/                 # plotting notebooks
+   └─ archive/             # superseded / rejected, kept for provenance
+```
+
+Run any tool as a module from the repo root, e.g.
+
+```bash
+python -m tools.eval.bubble_level_eval
+python -m tools.grouping.deploy_grouper PACK.gpkg
 ```
 
 ---

@@ -1,7 +1,7 @@
 """Build a labeling pack for ALL GT label polygons intersecting a single chip.
 
 Produces a GeoPackage with the *exact* same field schema as the
-`gt_seeps_label_labeler_*.gpkg` packs (post `seep_add_group_fields.py`), but
+`gt_seeps_label_labeler_*.gpkg` packs (post `seep_add_group_fields.py`, now in tools/archive/), but
 scoped to every label polygon in one chip rather than a stratified sample. Use
 this when you want to run the grouping + A/B/C classification exercise over a
 whole dense chip (e.g. chip 39, the over-merge canary) instead of the sampled
@@ -33,8 +33,7 @@ import geopandas as gpd
 
 # Reuse the allocation script's strata logic so bin cuts match the real packs.
 REPO_PATH = os.path.expanduser("~/git_repos/bubble-mapping")
-sys.path.insert(0, REPO_PATH)
-from seep_classification_allocation import assign_strata  # noqa: E402
+from tools.labeling.strata import assign_strata
 
 PRED_DIR = os.path.join(
     REPO_PATH, "data", "results", "SWIN", "AE", "20260428-1537_SWINxAE.weights"

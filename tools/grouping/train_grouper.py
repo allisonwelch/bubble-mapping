@@ -62,7 +62,6 @@ from collections import Counter
 import warnings
 from sklearn.exceptions import UndefinedMetricWarning
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 LAB = "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/"
 # The grouper's training inputs were archived into backup_pre_classified_20260624/
@@ -89,7 +88,7 @@ C39_CLS = _resolve(LAB + "gt_seeps_label_chip39_classified.gpkg",
 C39_FULL = _resolve(LAB + "gt_seeps_label_chip39.gpkg",
                     _BACKUP + "gt_seeps_label_chip39.gpkg")
 
-# historical_seep_size_priors.json -> "grouping" block.
+# historical_size_priors.json -> "grouping" block.
 CAND_RADIUS = 0.5        # candidate_radius_m (p95 major axis): max plausible gap
 AGGLOM_CAP_M = 1.0       # agglomeration_major_cap_m (p99): wider clusters bridge >1 seep
 
@@ -265,7 +264,7 @@ def components_from_edges(n, i, j, keep):
 def components_capped(n, i, j, proba, xy, keep, cap):
     """Diameter-capped agglomeration: merge kept edges in descending P(same),
     rejecting any merge whose cluster centroid-span would exceed `cap`. Mirrors
-    seep_grouper_deploy.constrained_cluster but over global node indices."""
+    deploy_grouper.constrained_cluster but over global node indices."""
     parent = list(range(n))
     members = {k: [k] for k in range(n)}
 

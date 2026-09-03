@@ -2,7 +2,7 @@
 QGIS stops recomputing them on every pan/zoom.
 
 WHY THIS EXISTS
-  The `group_hull_by_class` style injected by tools/seep_grouper_deploy.py draws
+  The `group_hull_by_class` style injected by tools/grouping/deploy_grouper.py draws
   the seep footprint with a geometry generator:
 
       convex_hull(collect($geometry, group_by:=concat("image",'-',"seep_group_id")))
@@ -54,9 +54,9 @@ in `class_mixed` so the label-QA slips stay visible instead of being smoothed
 away.
 
 Usage:
-  python tools/seep_hull_layer.py PACK.gpkg                 # in place (+ backup)
-  python tools/seep_hull_layer.py PACK.gpkg -o HULLS.gpkg   # sidecar, pack untouched
-  python tools/seep_hull_layer.py PACK.gpkg --no-backup --no-index
+  python -m tools.grouping.build_hull_layer PACK.gpkg                 # in place (+ backup)
+  python -m tools.grouping.build_hull_layer PACK.gpkg -o HULLS.gpkg   # sidecar, pack untouched
+  python -m tools.grouping.build_hull_layer PACK.gpkg --no-backup --no-index
 """
 import os
 import sys
@@ -73,7 +73,7 @@ import shapely
 HULL_LAYER = "seep_hulls"
 HULL_STYLE = "seep_hulls_by_class"
 BUBBLE_STYLE = "bubbles_plain"
-# class outline colors (r,g,b) -- ColorBrewer Dark2, same as seep_grouper_deploy.
+# class outline colors (r,g,b) -- ColorBrewer Dark2, same as deploy_grouper.
 CLASS_RGB = {"A": "27,158,119", "B": "217,95,2", "C": "117,112,179"}
 CLASS_RANK = {"": 0, "A": 1, "B": 2, "C": 3}
 RANK_CLASS = {v: k for k, v in CLASS_RANK.items()}
@@ -225,7 +225,7 @@ def _qml(layers):
 def hull_qml():
     """Dark footprint outline + a thicker class-coloured outline on top.
 
-    Deliberately the same look as seep_grouper_deploy's generator style, so
+    Deliberately the same look as deploy_grouper's generator style, so
     swapping to the precomputed layer is invisible on the map. Outline widths in
     MM (screen-constant) -- MapUnit renders metre-thick borders on a UTM layer.
     """

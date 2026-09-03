@@ -4,7 +4,7 @@ review/correct grouping and fill `class` (the first-order flux lever).
 
 Pipeline
   1. train the pairwise 'same-seep?' model on the COMBINED Katey labels
-     (chip-39 + quarter packs) -- see seep_pairwise_grouper_quarters.py.
+     (chip-39 + quarter packs) -- see train_grouper.py.
   2. for the target pack, per image: candidate pairs within 0.5 m among
      eligible bubbles -> P(same) -> threshold -> connected components -> seeps.
      seep_group_id = the MAX seep_id among a component's members (anchor-id
@@ -13,7 +13,7 @@ Pipeline
      geometry, spatial index, and existing layer_styles are untouched). Also
      freeze the model's proposal in an immutable seep_group_id_pred column +
      a group_source (model|fixed) flag, so a returned (labeler-edited) pack can
-     be diffed back into grouper training data (tools/seep_grouper_corrections.py).
+     be diffed back into grouper training data (tools/grouping/grouper_corrections.py).
   4. inject a named style 'group_hull_by_class':
         * live convex-hull geometry generator per (image, seep_group_id) ->
           consistent dark outline = the SEEP footprint;
@@ -28,7 +28,7 @@ set in fresh packs -- pass --flag-envelope-area-m2 to auto-flag big envelope
 polygons as fixed singletons before grouping, or flag them in QGIS first.
 
 Usage:
-  python tools/seep_grouper_deploy.py IN.gpkg [-o OUT.gpkg] [--thr 0.6]
+  python -m tools.grouping.deploy_grouper IN.gpkg [-o OUT.gpkg] [--thr 0.6]
          [--flag-envelope-area-m2 0.15]
 """
 import os
@@ -43,8 +43,7 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 from sklearn.ensemble import RandomForestClassifier
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from seep_pairwise_grouper_quarters import (  # noqa: E402
+from tools.grouping.train_grouper import (
     load_labeled, build_pairs, FEATURES, CAND_RADIUS, AGGLOM_CAP_M)
 
 STYLE_NAME = "group_hull_by_class"
@@ -351,7 +350,7 @@ def main():
     # group_source flag (model|fixed). Labeler corrections land in seep_group_id;
     # the pair-level diff (seep_group_id vs seep_group_id_pred) on group_source==
     # 'model' rows is the correction record consumed by
-    # tools/seep_grouper_corrections.py. fixed rows are human work (class set) or
+    # tools/grouping/grouper_corrections.py. fixed rows are human work (class set) or
     # is_overgrouped singletons the model was told to preserve, so they are NOT
     # scored model-vs-human (would be circular).
     cls = df["class"].fillna("").astype(str).str.strip()

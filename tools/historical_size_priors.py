@@ -13,7 +13,7 @@ Type_flux is a FLUX class (a/b/c), optionally suffixed:
 bubAreaCm2 is NOT a measured bubble area -- it is exactly the ellipse area
 pi/4 * length * width of the L x W envelope, so size == the (L, W) footprint.
 
-What this emits (labeling/historical_seep_size_priors.json):
+What this emits (labeling/historical_size_priors.json):
   * grouping geometry: R_max (candidate radius) + major-axis agglomeration cap,
     from the upper tail of real seep dimensions -- replaces the PROV_* guesses.
   * per-class (a/b/c) size distributions (major/minor axis, ellipse area).
@@ -39,7 +39,7 @@ REPO_PATH = os.path.expanduser("~/git_repos/bubble-mapping")
 PRED_DIR = os.path.join(REPO_PATH, "data", "results", "SWIN", "AE",
                         "20260428-1537_SWINxAE.weights")
 HIST_DIR = os.path.join(PRED_DIR, "labeling", "historical")
-OUT_JSON = os.path.join(PRED_DIR, "labeling", "historical_seep_size_priors.json")
+OUT_JSON = os.path.join(PRED_DIR, "labeling", "historical_size_priors.json")
 
 TARGET = ["Type_flux", "length_cm", "width_cm", "bubAreaCm2"]
 PCTS = [5, 25, 50, 75, 95, 99]

@@ -70,12 +70,12 @@ class Configuration:
         # -------- IMAGE / CHANNELS --------
         self.image_file_type = ".tif"
         self.resample_factor = 1
-        
+
         if self.modality != "S2":
             self.channels_used = [True, True, True]
         else:
             self.channels_used = [True, True, True, True, True, True, True, True, True, True, True, True]
-            
+
         self.preprocessing_bands = np.where(self.channels_used)[0]
         self.channel_list = list(self.preprocessing_bands)
 
@@ -201,11 +201,11 @@ class Configuration:
         # gt_grouping_mode, gt_labeled_seeps_path) were REMOVED 2026-09-03
         # along with the clustering stage itself: it was a hand-tuned
         # placeholder superseded by the learned random-forest grouper.
-        # tools/seep_level_eval.py now reports pixel->bubble detection only.
+        # tools/eval/bubble_level_eval.py now reports pixel->bubble detection only.
         # See CLAUDE.md; recoverable at tag `pre-cleanup`.
 
         # --- HSV SNOW MASK (predictions only; GT is never masked) ---
-        # Read by tools/seep_level_eval.py. Snow heuristic per pixel:
+        # Read by tools/eval/bubble_level_eval.py. Snow heuristic per pixel:
         #   V (= max(R,G,B) / dtype_max)            >= snow_v_thresh
         #   S (= (max-min) / max, == 0 for grayscale) <= snow_s_thresh
         # When `snow_mask_enabled`, the snow mask drives a CC-LEVEL filter:
@@ -243,7 +243,7 @@ class Configuration:
         self.snow_cc_drop_frac = 0.5
         self.write_snow_rasters = False
 
-        # All artifacts from a tools/seep_level_eval.py run (per-chip rasters,
+        # All artifacts from a tools/eval/bubble_level_eval.py run (per-chip rasters,
         # CSVs, GPKGs) land in {pred_dir}/{seep_eval_out_subdir}/ when this is
         # set. Lets A/B runs (e.g. snow-mask on vs off) write to parallel
         # subdirectories without overwriting the canonical baseline artifacts

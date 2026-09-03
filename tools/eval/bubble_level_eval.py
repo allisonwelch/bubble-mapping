@@ -1,4 +1,4 @@
-# tools/seep_level_eval.py
+# tools/eval/bubble_level_eval.py
 """BUBBLE-LEVEL evaluation of the detector: predicted connected components
 matched one-to-one against ground-truth connected components.
 
@@ -28,7 +28,7 @@ at tools/archive/polygon_matcher.py together with the recipe for an honest
 RF-grouper version. Canonical detection metric is now bubble F1 = 0.645.
 
 Ground-truth bubble POLYGONS are no longer written here -- that is
-tools/gt_seeps_export.py's job, so there is exactly one producer of that file.
+tools/eval/gt_bubbles_export.py's job, so there is exactly one producer of that file.
 """
 import os, sys, glob
 import numpy as np
@@ -37,14 +37,13 @@ import rasterio
 from skimage.measure import label, regionprops
 from tqdm import tqdm
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from write_seep_rasters import (
+from tools.eval.write_bubble_rasters import (
     smooth_pred,
     snow_mask_hsv,
     write_rasters_for_pred,
     write_snow_raster,
 )
-from seep_feature_table import (
+from tools.eval.bubble_features import (
     process_pred as _bubble_feat_process,
     write_feature_csvs as _bubble_feat_write_csvs,
 )
@@ -357,7 +356,6 @@ def main(pred_dir, chip_dir,
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
     from config import configSwinUnet
     config = configSwinUnet.Configuration().validate()
     ckpt_pred_dir = os.path.join(config.results_dir, "20260428-1537_SWINxAE.weights")

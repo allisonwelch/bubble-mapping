@@ -26,7 +26,7 @@ picks up RGB.
 Output schema is byte-compatible with `gt_seeps_label_quarters_*_grouped.gpkg` so
 the same QGIS workflow, style, and downstream tools apply unchanged. `class` is
 blank and `seep_group_id` defaults to `seep_id`; run
-`tools/seep_grouper_deploy.py` on the result to pre-group it (that step also adds
+`tools/grouping/deploy_grouper.py` on the result to pre-group it (that step also adds
 `seep_group_id_pred` / `group_source` and injects the hull style).
 
 Polygons come from the ORIGINAL drawn shapes via `build_gt_seeps_from_source`,
@@ -45,10 +45,9 @@ import sys
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import geopandas as gpd  # noqa: E402
-from seep_feature_table import build_gt_seeps_from_source  # noqa: E402
+import geopandas as gpd
+from tools.eval.bubble_features import build_gt_seeps_from_source
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -170,7 +169,7 @@ def main() -> None:
     big = gt.nlargest(10, "area_m2")[["image", "seep_id", "area_m2"]]
     print("\n  10 largest polygons (start C-hunting here):")
     print("   " + big.to_string(index=False).replace("\n", "\n   "))
-    print("\nnext: python tools/seep_grouper_deploy.py "
+    print("\nnext: python -m tools.grouping.deploy_grouper "
           f'"{args.out}" -o "{args.out.replace(".gpkg", "_grouped.gpkg")}"')
 
 

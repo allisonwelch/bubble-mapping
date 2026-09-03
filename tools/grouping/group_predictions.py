@@ -26,11 +26,10 @@ import pandas as pd
 import geopandas as gpd
 import rasterio
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from seep_grouper_deploy import (  # noqa: E402
+from tools.grouping.deploy_grouper import (
     train_model, _pair_features, constrained_cluster, build_qml, inject_style)
-from seep_pairwise_grouper_quarters import FEATURES, AGGLOM_CAP_M  # noqa: E402
-from seep_feature_table import polygonize_labels  # noqa: E402
+from tools.grouping.train_grouper import FEATURES, AGGLOM_CAP_M
+from tools.eval.bubble_features import polygonize_labels
 
 PD = "data/results/SWIN/AE/20260428-1537_SWINxAE.weights"
 PRED_BUBBLES = PD + "/seep_features_per_bubble.csv"

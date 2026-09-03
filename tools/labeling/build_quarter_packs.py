@@ -43,8 +43,7 @@ from shapely.geometry import box
 from shapely.ops import unary_union
 
 REPO_PATH = os.path.expanduser("~/git_repos/bubble-mapping")
-sys.path.insert(0, REPO_PATH)
-from seep_classification_allocation import assign_strata  # noqa: E402
+from tools.labeling.strata import assign_strata
 
 PRED_DIR = os.path.join(
     REPO_PATH, "data", "results", "SWIN", "AE", "20260428-1537_SWINxAE.weights"
