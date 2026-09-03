@@ -12,17 +12,12 @@ The work splits into **two pipelines that meet at a raster of predicted pixels**
 
 Pipeline A is a fairly ordinary supervised segmentation setup inherited from the
 [DriftwoodMappingBenchmark](archive/README_DriftwoodMappingBenchmark.md) codebase.
-Pipeline B is the part specific to this project, and it is where most of the
-research risk lives: **flux is count-based**, so how bubbles are grouped into
-seeps and how those seeps are classified drives the headline number far more
-than detector quality does.
+Pipeline B is the part specific to this project. **Flux is count-based**, so both Swin-UNet bubble detection as well as grouping detected bubbles into seeps and classifying them based on a established classification system (Walter Anthony et al., 2010) matters for flux estimation.
 
 ---
 
-## The naming convention (read this first)
+## Naming Conventions
 
-Three tiers, defined by **when the unit comes into existence**. The rule that
-matters: **nothing is a "seep" until the grouper has run.**
 
 | Tier | One unit is… | Exists after | Code |
 |---|---|---|---|
@@ -30,8 +25,7 @@ matters: **nothing is a "seep" until the grouper has run.**
 | **bubble** | one connected component, or one drawn polygon | connected components / labeling | `tools/eval/`, `tools/labeling/` |
 | **seep** | one **group** of bubbles | the grouper runs | `tools/grouping/`, `tools/classify/` |
 
-A file, column or variable named `seep_*` that operates *before* the grouper is
-a naming bug. In the GeoPackages this means **`bubble_id`** is the per-polygon id
+In the GeoPackages this means **`bubble_id`** is the per-polygon id
 and **`seep_group_id`** is the seep id; keys are always the tuple
 `(image, seep_group_id)`, never the group id alone, because ids restart per chip.
 
@@ -51,7 +45,7 @@ and **`seep_group_id`** is the seep id; keys are always the tuple
                                  evaluate_SwinUNetPP() ─► per-chip masks + PIXEL metrics
 ```
 
-**Run it.** `mainSwinUnet.py` is the entry point; its stages are commented in and
+**Run** `mainSwinUnet.py`; its stages are commented in and
 out by hand. On the cluster each stage has its own Slurm script:
 
 ```bash
@@ -78,12 +72,22 @@ Paths are model- and modality-aware: `models/SWIN/AE`, `logs/SWIN/AE`,
 `evaluation.py` then calls Pipeline B's bubble-level eval automatically, so a
 single evaluation run yields both pixel and bubble metrics.
 
-> ⚠️ **The chip dir in the config is not the one that reproduces the canonical
-> metrics.** Use `data/preprocessed/2026-04-22_SWINxAE` — it is the only SWIN
-> preprocessed dir whose GT label band matches the canonical per-image `n_gt` on
-> all 9 labeled chips. `2026-04-27_SWINxAE` (the config default) differs on 7 of
-> 9 and yields bubble F1 = 0.6135 instead of 0.6449. Nothing errors; you just get
-> a quietly wrong number.
+> ⚠️ **`preprocessed_dir` and `saved_models_dir` must name the same experiment.**
+> `preprocessed_dir` supplies both the chips AND the train/val/test split, so
+> pointing it at a different preprocessing run than the checkpoint trained on
+> means evaluating on chips that may have been in that model's training split.
+> Nothing errors — the numbers just come out wrong.
+>
+> | dir | GT label set | canonical bubble F1 |
+> |---|---|---|
+> | `2026-04-22_SWINxAE` | **full** | **0.6449** |
+> | `2026-04-27_SWINxAE` | certain (no ambiguous) | 0.6135 |
+> | `2026-06-16_SWINxAE` | certain, re-chipped | 0.6135 |
+>
+> The two "certain" chippings give identical numbers because they share a label
+> set: excluding ambiguous labels shrinks the GT denominator (21.tif `n_gt`
+> 54 → 40). The canonical checkpoint `20260428-1537` was trained on
+> **`2026-04-22`**, so that is the dir to evaluate it against.
 
 ---
 
