@@ -1,12 +1,12 @@
 # tools/eval/gt_bubbles_export.py
 """
-Export per-chip ground-truth seeps to a single labelable vector layer,
+Export per-chip ground-truth BUBBLES to a single labelable vector layer,
 PRESERVING the original drawn polygon shapes.
 
 Walks chip_dir; for each chip reads its CRS+extent and clips the original
 GT polygons (config.training_polygon_fn) to that extent. Per-polygon
 features (area, perim, circularity, solidity, eccentricity, mean_R/G/B)
-are computed by build_gt_seeps_from_source so adjacent polygons never get
+are computed by build_gt_bubbles_from_source so adjacent polygons never get
 merged into a single CC the way the rasterize -> CC -> repolygonize path
 used to merge them.
 
@@ -25,8 +25,8 @@ import argparse
 from tqdm import tqdm
 
 from tools.eval.bubble_features import (
-    build_gt_seeps_from_source,
-    write_seeps_gpkg,
+    build_gt_bubbles_from_source,
+    write_bubbles_gpkg,
     _AUX_SUFFIXES,
 )
 
@@ -54,7 +54,7 @@ def main(chip_dir, out_dir, source_polygons_fp,
     Scope of which chips to include is controlled by `pred_dir`:
       - If pred_dir is given, only chips whose basename matches a prediction
         .tif in pred_dir are processed. This is the canonical convention
-        (matches what bubble_level_eval.py writes) -- gt_seeps reflects the
+        (matches what bubble_level_eval.py writes) -- the GT layer reflects the
         TEST SET that was evaluated.
       - If pred_dir is None, walks every chip in chip_dir. Use only when you
         intentionally want GT polygons for all chips (train+val+test).
@@ -87,8 +87,8 @@ def main(chip_dir, out_dir, source_polygons_fp,
 
     print(f"processing {scope_label}")
     gdfs = []
-    for fp in tqdm(chip_fps, desc="GT seep polygons"):
-        g = build_gt_seeps_from_source(fp, src_gdf, id_name="seep_id")
+    for fp in tqdm(chip_fps, desc="GT bubble polygons"):
+        g = build_gt_bubbles_from_source(fp, src_gdf, id_name="seep_id")
         if g is None or g.empty:
             continue
         g.insert(0, "image", os.path.basename(fp))
@@ -102,7 +102,7 @@ def main(chip_dir, out_dir, source_polygons_fp,
         )
     os.makedirs(out_dir, exist_ok=True)
     out_fp = os.path.join(out_dir, "gt_seeps.gpkg")
-    write_seeps_gpkg(out_fp, gdfs, class_column=True)
+    write_bubbles_gpkg(out_fp, gdfs, class_column=True)
     total = sum(len(g) for g in gdfs)
     print(f"\nWrote {total} GT seeps from {len(gdfs)} chips to {out_fp}")
     print("Open in QGIS, toggle editing, fill the `class` column per row, save.")
@@ -110,7 +110,7 @@ def main(chip_dir, out_dir, source_polygons_fp,
 
 
 def _parse_args():
-    p = argparse.ArgumentParser(description="Export GT seep polygons to GPKG")
+    p = argparse.ArgumentParser(description="Export GT bubble polygons to GPKG")
     p.add_argument("--chip_dir", default=None,
                    help="Directory of chip .tif files (default: config.preprocessed_dir)")
     p.add_argument("--out_dir", default=None,

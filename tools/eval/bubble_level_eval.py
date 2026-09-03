@@ -359,7 +359,7 @@ if __name__ == "__main__":
     from config import configSwinUnet
     config = configSwinUnet.Configuration().validate()
     ckpt_pred_dir = os.path.join(config.results_dir, "20260428-1537_SWINxAE.weights")
-    sub = getattr(config, "seep_eval_out_subdir", None)
+    sub = getattr(config, "bubble_eval_out_subdir", None)
     main(
         pred_dir=ckpt_pred_dir,
         chip_dir=config.preprocessed_dir,

@@ -244,11 +244,11 @@ class Configuration:
         self.write_snow_rasters = False
 
         # All artifacts from a tools/eval/bubble_level_eval.py run (per-chip rasters,
-        # CSVs, GPKGs) land in {pred_dir}/{seep_eval_out_subdir}/ when this is
+        # CSVs, GPKGs) land in {pred_dir}/{bubble_eval_out_subdir}/ when this is
         # set. Lets A/B runs (e.g. snow-mask on vs off) write to parallel
         # subdirectories without overwriting the canonical baseline artifacts
         # directly in pred_dir. Set to None to write to pred_dir as before.
-        self.seep_eval_out_subdir = None
+        self.bubble_eval_out_subdir = None
 
         # Prediction outputs (for completeness with tools)
         # Attribute field in training_area_fn whose value is the .tif basename (no extension)

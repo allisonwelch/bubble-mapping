@@ -120,12 +120,12 @@ def polygonize_labels(label_array, transform, crs):
     return gdf
 
 
-def labels_to_seep_gdf(label_array, image, transform, crs, id_name="seep_id"):
+def labels_to_bubble_gdf(label_array, image, transform, crs, id_name="seep_id"):
     """End-to-end: labels → polygons + features → GeoDataFrame (one row per
     label, with shapely geometry, area/perim/circ/solidity/ecc, mean_R/G/B).
     Use for both GT polygons (label = polygon CC) and pred cluster rasters."""
     if not _HAS_GPD:
-        raise RuntimeError("geopandas is required for labels_to_seep_gdf")
+        raise RuntimeError("geopandas is required for labels_to_bubble_gdf")
     features = compute_bubble_features(label_array, image, transform)
     features = features.rename(columns={"bubble_id": id_name})
     gdf = polygonize_labels(label_array, transform, crs)
@@ -133,14 +133,14 @@ def labels_to_seep_gdf(label_array, image, transform, crs, id_name="seep_id"):
     return gdf.merge(features, on=id_name, how="left")
 
 
-def build_gt_seeps_from_source(chip_fp, source_polygons_gdf,
+def build_gt_bubbles_from_source(chip_fp, source_polygons_gdf,
                                id_name="seep_id"):
-    """Build per-chip GT-seep GeoDataFrame from ORIGINAL drawn polygons.
+    """Build a per-chip GT-BUBBLE GeoDataFrame from the ORIGINAL drawn polygons.
 
-    Use this instead of running labels_to_seep_gdf on the rasterized GT mask:
+    Use this instead of running labels_to_bubble_gdf on the rasterized GT mask:
     the rasterize -> CC -> repolygonize round-trip merges any two original
     polygons that touch (or sit within 1 px diagonally with 8-connectivity)
-    into a single output polygon, which destroys per-seep class labels.
+    into a single output polygon, which destroys per-bubble class labels.
 
     For each source polygon intersecting the chip footprint:
       - geometry: original polygon, clipped to chip extent
@@ -150,7 +150,7 @@ def build_gt_seeps_from_source(chip_fp, source_polygons_gdf,
         per-polygon label (so adjacent polygons never merge into one CC)
         and read regionprops + image pixels off that label raster
 
-    Returns a GeoDataFrame with the same column schema as labels_to_seep_gdf
+    Returns a GeoDataFrame with the same column schema as labels_to_bubble_gdf
     (id_name, centroid_x_m, centroid_y_m, area_m2, perim_m, circularity,
     solidity, eccentricity, mean_R, mean_G, mean_B, geometry). Returns None
     when the chip has no CRS or no polygons intersect it.
@@ -249,11 +249,11 @@ def build_gt_seeps_from_source(chip_fp, source_polygons_gdf,
     return out
 
 
-def write_seeps_gpkg(out_fp, gdfs, class_column=False):
+def write_bubbles_gpkg(out_fp, gdfs, class_column=False):
     """Concatenate per-chip GeoDataFrames and write to a single GPKG.
     Adds an empty `class` text column when class_column=True (used for GT)."""
     if not _HAS_GPD:
-        raise RuntimeError("geopandas is required for write_seeps_gpkg")
+        raise RuntimeError("geopandas is required for write_bubbles_gpkg")
     valid = [g for g in gdfs if g is not None and not g.empty]
     if not valid:
         return None

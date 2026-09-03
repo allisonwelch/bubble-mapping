@@ -20,7 +20,7 @@ as a separate labeling surface, and reconcile on geometry (not on seep_id) if yo
 later need to merge it with the quarter packs.
 
 Chips in `labeling/chips` are RGB+alpha (band 4 is a constant 255 alpha, not a GT
-mask); `build_gt_seeps_from_source` reads all-but-the-last band, so it correctly
+mask); `build_gt_bubbles_from_source` reads all-but-the-last band, so it correctly
 picks up RGB.
 
 Output schema is byte-compatible with `gt_seeps_label_quarters_*_grouped.gpkg` so
@@ -29,7 +29,7 @@ blank and `seep_group_id` defaults to `seep_id`; run
 `tools/grouping/deploy_grouper.py` on the result to pre-group it (that step also adds
 `seep_group_id_pred` / `group_source` and injects the hull style).
 
-Polygons come from the ORIGINAL drawn shapes via `build_gt_seeps_from_source`,
+Polygons come from the ORIGINAL drawn shapes via `build_gt_bubbles_from_source`,
 NOT from re-polygonized label rasters -- the raster round-trip merges touching
 polygons (2026-05-14).
 """
@@ -47,7 +47,7 @@ import pandas as pd
 
 
 import geopandas as gpd
-from tools.eval.bubble_features import build_gt_seeps_from_source
+from tools.eval.bubble_features import build_gt_bubbles_from_source
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -130,7 +130,7 @@ def main() -> None:
         if not os.path.exists(chip_fp):
             print(f"  [skip] {i}.tif not found")
             continue
-        gdf = build_gt_seeps_from_source(chip_fp, src)
+        gdf = build_gt_bubbles_from_source(chip_fp, src)
         if gdf is None or gdf.empty:
             print(f"  {i}.tif: 0 polygons")
             continue

@@ -8,7 +8,7 @@ whole dense chip (e.g. chip 39, the over-merge canary) instead of the sampled
 750-seep allocation.
 
 Source polygons come straight from `gt_seeps.gpkg`, whose rows are the original
-drawn polygons clipped per-chip (built by `build_gt_seeps_from_source`), tagged
+drawn polygons clipped per-chip (built by `build_gt_bubbles_from_source`), tagged
 with an `image` column. "Intersects chip N" is therefore exactly the rows whose
 `image == "<N>.tif"` -- those are already clipped to the chip footprint and carry
 the per-polygon morphology/brightness features.

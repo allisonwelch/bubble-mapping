@@ -1,6 +1,6 @@
 # tools/eval/write_bubble_rasters.py
 """
-Write seep post-processing rasters (_smoothed.tif and _cc.tif) for each prediction
+Write bubble post-processing rasters (_smoothed.tif and _cc.tif) for each prediction
 in a directory. Standalone-runnable, also importable from bubble_level_eval.py.
 
 Smoothing: morphological closing + opening with disk(1) per CLAUDE.md 2026-04-28.
@@ -125,7 +125,7 @@ def write_rasters_for_dir(pred_dir):
         fp for fp in sorted(glob.glob(os.path.join(pred_dir, "*.tif")))
         if not fp.endswith(_AUX_SUFFIXES)
     ]
-    for pred_fp in tqdm(pred_fps, desc="Writing seep rasters"):
+    for pred_fp in tqdm(pred_fps, desc="Writing bubble rasters"):
         write_rasters_for_pred(pred_fp)
 
 
