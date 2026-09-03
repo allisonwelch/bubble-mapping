@@ -194,55 +194,15 @@ class Configuration:
         self.create_polygons = True
         self.postproc_workers = 12
 
-        # --- SEEP FEATURE TABLE / ANCHOR-CONDITIONAL CLUSTERING ---
-        # Read by tools/seep_feature_table.py and tools/seep_level_eval.py.
-        # A predicted bubble with area >= seep_anchor_area_m2 is an "anchor" (always
-        # a cluster head). Non-anchor bubbles within seep_cluster_radius_m of an
-        # anchor centroid join that anchor's cluster. Others form singleton clusters.
-        # Default anchor area = pi * (25 cm)^2; provisional until Walter's threshold.
-        self.seep_anchor_area_m2 = float(np.pi * (0.125 ** 2))
-        self.seep_cluster_radius_m = 0.45
-        # Satellite area cap: a non-anchor bubble must be at most this large to
-        # be eligible as a satellite. Set to None to disable (every non-anchor
-        # eligible). Default = pi * (7.5 cm)^2 — provisional; tune from
-        # cluster-size histogram and n_medium count in the script printout.
-        self.seep_satellite_max_area_m2 = float(np.pi * (0.1 ** 2))
-        # Phase-2 ("lonely") clustering: after the anchor pass, group Phase-1
-        # singletons that sit close together AND have a sparse halo around the
-        # candidate cluster's centroid. Catches isolated clusters of small
-        # bubbles that have no anchor among them.
-        #   lonely_cluster_radius_m   inner grouping radius for singletons
-        #   lonely_halo_radius_m      radius around the candidate centroid in
-        #                             which other bubbles are counted
-        #   lonely_max_halo_neighbors strict-less-than; <= this many neighbors
-        #                             outside the candidate accepts the cluster
-        # Set lonely_cluster_radius_m=0 OR lonely_max_halo_neighbors=0 to disable.
-        self.seep_lonely_cluster_radius_m = 0.4
-        self.seep_lonely_halo_radius_m = 1.5
-        self.seep_lonely_max_halo_neighbors = 5
-        self.write_seep_cluster_rasters = False
-
-        # --- SEEP-LEVEL EVAL: GROUND-TRUTH GROUPING MODE ---
-        # Read by tools/seep_level_eval.py. Controls how the GT side is grouped
-        # into seeps for the cluster-level matcher (the headline cluster_f1):
-        #   "auto"   (headline) rule-group the FULL per-chip GT with the fitted
-        #            seep_anchor_area_m2 / seep_cluster_radius_m /
-        #            seep_satellite_max_area_m2 above (the same rule applied to
-        #            predictions), so cluster_f1 covers every test-chip seep and
-        #            is a seep-level DETECTION metric. ** Set the fitted Phase-6
-        #            values above BEFORE running, or GT gets grouped with the
-        #            provisional placeholders. **
-        #   "manual" match against the labeler-grouped 750-seep sample
-        #            (gt_seeps_labeled.gpkg) — human-vs-pred SANITY CHECK only,
-        #            NOT the headline (the 750 are a deliberately
-        #            non-representative stratified sample; wrong denominator).
-        # Grouping-rule-vs-human fidelity is reported separately by the Phase-6
-        # cross-validation kappa, not by this eval. See CLAUDE.md 2026-05-29.
-        self.gt_grouping_mode = "auto"
-        # Optional override of the manual-mode labeled-seeps file. Leave this
-        # line commented to auto-discover gt_seeps_labeled.gpkg in the
-        # checkpoint's pred_dir (do NOT set it to None — that disables discovery).
-        # self.gt_labeled_seeps_path = "/path/to/gt_seeps_labeled.gpkg"
+        # --- BUBBLE-LEVEL EVAL ---
+        # The anchor-conditional + "lonely" clustering knobs that used to
+        # live here (seep_anchor_area_m2, seep_cluster_radius_m,
+        # seep_satellite_max_area_m2, seep_lonely_*, write_seep_cluster_rasters,
+        # gt_grouping_mode, gt_labeled_seeps_path) were REMOVED 2026-09-03
+        # along with the clustering stage itself: it was a hand-tuned
+        # placeholder superseded by the learned random-forest grouper.
+        # tools/seep_level_eval.py now reports pixel->bubble detection only.
+        # See CLAUDE.md; recoverable at tag `pre-cleanup`.
 
         # --- HSV SNOW MASK (predictions only; GT is never masked) ---
         # Read by tools/seep_level_eval.py. Snow heuristic per pixel:

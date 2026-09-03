@@ -63,8 +63,6 @@ import warnings
 from sklearn.exceptions import UndefinedMetricWarning
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from seep_feature_table import anchor_cluster, lonely_cluster  # noqa: E402
-from seep_fit_clustering_params import measure_groups  # noqa: E402
 
 LAB = "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/"
 # The grouper's training inputs were archived into backup_pre_classified_20260624/
@@ -379,32 +377,8 @@ def main():
         f"{f}={imp:.2f}" for f, imp in
         sorted(zip(FEATURES, rf.feature_importances_), key=lambda t: -t[1])[:6]))
 
-    # ----- baseline: current anchor+lonely rule, per image, fitted percentiles -
-    grouped_for_fit = L[(L["is_context"] != 1)].copy()
-    grouped_for_fit["seep_group_id"] = grouped_for_fit["g_int"]
-    meas = measure_groups(grouped_for_fit)
-    base_comp = np.arange(n)               # default: each bubble its own cluster
-    if len(meas) >= 1:
-        aa = float(np.percentile(meas["anchor_area_m2"], 5))
-        rr = float(np.percentile(meas["intra_radius_m"], 90))
-        ss = float(np.percentile(meas["max_satellite_area_m2"], 95))
-        next_id = 0
-        for im, sub in L.groupby("image"):
-            bub = pd.DataFrame({
-                "bubble_id": np.arange(len(sub)),
-                "area_m2": sub["area_m2"].to_numpy(float),
-                "centroid_x_m": sub["centroid_x_m"].to_numpy(float),
-                "centroid_y_m": sub["centroid_y_m"].to_numpy(float)})
-            cl = lonely_cluster(anchor_cluster(bub, aa, rr, ss))
-            local = cl["cluster_id"].to_numpy()
-            remap = {v: next_id + k for k, v in enumerate(pd.unique(local))}
-            base_comp[sub.index.to_numpy()] = [remap[v] for v in local]
-            next_id += len(remap)
-
     print(f"\n{'method':>26} {'N_seep':>6} {'bias':>5} {'frag':>5} {'omrg':>5} "
           f"{'A':>4} {'B':>4} {'C':>4} {'>cap':>6}")
-    report("CURRENT rule (fit p90)", restrict(base_comp), N_h,
-           overcap(base_comp[scored_mask], sxy[scored_mask], AGGLOM_CAP_M))
     report("HUMAN grouping", pd.DataFrame(
         {"human": hg[scored_mask], "rule": hg[scored_mask],
          "hclass": hcls[scored_mask]}), N_h,
@@ -453,7 +427,6 @@ def main():
     for name in models:
         thr, comp = best[name]
         rows.append((f"{name} thr={thr:.1f}", class_counts_of(comp)))
-    rows.append(("CURRENT rule", class_counts_of(base_comp)))
     for tag, c in rows:
         f = flux(c)
         err = 100.0 * (f - f_truth) / f_truth if f_truth else float("nan")
