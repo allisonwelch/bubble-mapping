@@ -44,9 +44,15 @@ class Configuration:
         # certain dataset (no toolik), re-chipped to inherit the canonical
         # 20260428-1537 train/val/test split (see split_list_path below). Fresh
         # dir so the old certain-split chips in 2026-04-27_SWINxAE are left intact.
+        # self.preprocessed_dir = (
+        #     f"{REPO_PATH}/data/preprocessed/"
+        #     f"2026-06-16_SWINxAE"
+        # )
+
+        # Full dataset
         self.preprocessed_dir = (
             f"{REPO_PATH}/data/preprocessed/"
-            f"2026-06-16_SWINxAE"
+            f"2026-04-22_SWINxAE"
         )
 
         # Checkpointing / logs / results (model + modality subfolders)
@@ -58,7 +64,7 @@ class Configuration:
         # Fresh, empty dir so evaluation.py's non-recursive glob picks up ONLY
         # this run's checkpoints (not the old 20260615 continued run).
         self.saved_models_dir = (
-            f"{REPO_PATH}/data/models/SWIN/{self.modality}/certain_cannonsplit_20260616_SWINxAE"
+            f"{REPO_PATH}/data/models/SWIN/{self.modality}"
         )
         self.logs_dir = (
             f"{REPO_PATH}/data/logs/SWIN/{self.modality}"
@@ -70,12 +76,12 @@ class Configuration:
         # -------- IMAGE / CHANNELS --------
         self.image_file_type = ".tif"
         self.resample_factor = 1
-        
+
         if self.modality != "S2":
             self.channels_used = [True, True, True]
         else:
             self.channels_used = [True, True, True, True, True, True, True, True, True, True, True, True]
-            
+
         self.preprocessing_bands = np.where(self.channels_used)[0]
         self.channel_list = list(self.preprocessing_bands)
 
@@ -194,58 +200,18 @@ class Configuration:
         self.create_polygons = True
         self.postproc_workers = 12
 
-        # --- SEEP FEATURE TABLE / ANCHOR-CONDITIONAL CLUSTERING ---
-        # Read by tools/seep_feature_table.py and tools/seep_level_eval.py.
-        # A predicted bubble with area >= seep_anchor_area_m2 is an "anchor" (always
-        # a cluster head). Non-anchor bubbles within seep_cluster_radius_m of an
-        # anchor centroid join that anchor's cluster. Others form singleton clusters.
-        # Default anchor area = pi * (25 cm)^2; provisional until Walter's threshold.
-        self.seep_anchor_area_m2 = float(np.pi * (0.125 ** 2))
-        self.seep_cluster_radius_m = 0.45
-        # Satellite area cap: a non-anchor bubble must be at most this large to
-        # be eligible as a satellite. Set to None to disable (every non-anchor
-        # eligible). Default = pi * (7.5 cm)^2 — provisional; tune from
-        # cluster-size histogram and n_medium count in the script printout.
-        self.seep_satellite_max_area_m2 = float(np.pi * (0.1 ** 2))
-        # Phase-2 ("lonely") clustering: after the anchor pass, group Phase-1
-        # singletons that sit close together AND have a sparse halo around the
-        # candidate cluster's centroid. Catches isolated clusters of small
-        # bubbles that have no anchor among them.
-        #   lonely_cluster_radius_m   inner grouping radius for singletons
-        #   lonely_halo_radius_m      radius around the candidate centroid in
-        #                             which other bubbles are counted
-        #   lonely_max_halo_neighbors strict-less-than; <= this many neighbors
-        #                             outside the candidate accepts the cluster
-        # Set lonely_cluster_radius_m=0 OR lonely_max_halo_neighbors=0 to disable.
-        self.seep_lonely_cluster_radius_m = 0.4
-        self.seep_lonely_halo_radius_m = 1.5
-        self.seep_lonely_max_halo_neighbors = 5
-        self.write_seep_cluster_rasters = False
-
-        # --- SEEP-LEVEL EVAL: GROUND-TRUTH GROUPING MODE ---
-        # Read by tools/seep_level_eval.py. Controls how the GT side is grouped
-        # into seeps for the cluster-level matcher (the headline cluster_f1):
-        #   "auto"   (headline) rule-group the FULL per-chip GT with the fitted
-        #            seep_anchor_area_m2 / seep_cluster_radius_m /
-        #            seep_satellite_max_area_m2 above (the same rule applied to
-        #            predictions), so cluster_f1 covers every test-chip seep and
-        #            is a seep-level DETECTION metric. ** Set the fitted Phase-6
-        #            values above BEFORE running, or GT gets grouped with the
-        #            provisional placeholders. **
-        #   "manual" match against the labeler-grouped 750-seep sample
-        #            (gt_seeps_labeled.gpkg) — human-vs-pred SANITY CHECK only,
-        #            NOT the headline (the 750 are a deliberately
-        #            non-representative stratified sample; wrong denominator).
-        # Grouping-rule-vs-human fidelity is reported separately by the Phase-6
-        # cross-validation kappa, not by this eval. See CLAUDE.md 2026-05-29.
-        self.gt_grouping_mode = "auto"
-        # Optional override of the manual-mode labeled-seeps file. Leave this
-        # line commented to auto-discover gt_seeps_labeled.gpkg in the
-        # checkpoint's pred_dir (do NOT set it to None — that disables discovery).
-        # self.gt_labeled_seeps_path = "/path/to/gt_seeps_labeled.gpkg"
+        # --- BUBBLE-LEVEL EVAL ---
+        # The anchor-conditional + "lonely" clustering knobs that used to
+        # live here (seep_anchor_area_m2, seep_cluster_radius_m,
+        # seep_satellite_max_area_m2, seep_lonely_*, write_seep_cluster_rasters,
+        # gt_grouping_mode, gt_labeled_seeps_path) were REMOVED 2026-09-03
+        # along with the clustering stage itself: it was a hand-tuned
+        # placeholder superseded by the learned random-forest grouper.
+        # tools/eval/bubble_level_eval.py now reports pixel->bubble detection only.
+        # See CLAUDE.md; recoverable at tag `pre-cleanup`.
 
         # --- HSV SNOW MASK (predictions only; GT is never masked) ---
-        # Read by tools/seep_level_eval.py. Snow heuristic per pixel:
+        # Read by tools/eval/bubble_level_eval.py. Snow heuristic per pixel:
         #   V (= max(R,G,B) / dtype_max)            >= snow_v_thresh
         #   S (= (max-min) / max, == 0 for grayscale) <= snow_s_thresh
         # When `snow_mask_enabled`, the snow mask drives a CC-LEVEL filter:
@@ -257,7 +223,7 @@ class Configuration:
         # FPs. A {stem}_snow.tif is also written per chip when
         # write_snow_rasters=True so the mask can be overlaid on the chip in
         # QGIS to verify it isn't eating real bubbles. Tune by toggling
-        # snow_mask_enabled and inspecting seep_level_summary.csv columns
+        # snow_mask_enabled and inspecting bubble_level_summary.csv columns
         # `snow_pct_masked` (how much of the image the mask hits) and
         # `snow_ccs_dropped` (how many CCs were filtered out).
         #
@@ -283,12 +249,12 @@ class Configuration:
         self.snow_cc_drop_frac = 0.5
         self.write_snow_rasters = False
 
-        # All artifacts from a tools/seep_level_eval.py run (per-chip rasters,
-        # CSVs, GPKGs) land in {pred_dir}/{seep_eval_out_subdir}/ when this is
+        # All artifacts from a tools/eval/bubble_level_eval.py run (per-chip rasters,
+        # CSVs, GPKGs) land in {pred_dir}/{bubble_eval_out_subdir}/ when this is
         # set. Lets A/B runs (e.g. snow-mask on vs off) write to parallel
         # subdirectories without overwriting the canonical baseline artifacts
         # directly in pred_dir. Set to None to write to pred_dir as before.
-        self.seep_eval_out_subdir = None
+        self.bubble_eval_out_subdir = None
 
         # Prediction outputs (for completeness with tools)
         # Attribute field in training_area_fn whose value is the .tif basename (no extension)

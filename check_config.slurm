@@ -12,7 +12,7 @@ conda activate venv-bubble
 
 cd ~/bubble-mapping
 
-python checkconfig.py
+python -c "from config import configSwinUnet; configSwinUnet.Configuration().validate(); print('config OK')"
 
 echo "Job finished: $(date)"
 

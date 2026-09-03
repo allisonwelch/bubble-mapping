@@ -1,157 +1,181 @@
-# DriftwoodMappingBenchmark
+# bubble-mapping
 
-A complete pipeline to preprocess imagery, tune hyperparameters, train deep models, and evaluate segmentation performance for driftwood mapping across multiple modalities (AE, PS, S2). Entry points are provided for UNet, Swin-UNet, and the TerraMind foundation model.
+Mapping methane ebullition seeps in frozen Arctic lake ice from 1 cm/px aerial
+imagery, and turning them into a lake-total methane flux.
 
+The work splits into **two pipelines that meet at a raster of predicted pixels**:
 
-## Purpose
+| | Pipeline | What it produces | Where it lives |
+|---|---|---|---|
+| **A** | **Detection** — Swin-UNet++ segmentation | a binary bubble mask per chip | repo root + `core/` |
+| **B** | **Interpretation** — group, classify, integrate | seeps, their A/B/C class, and flux | `tools/` |
 
-- Compare architectures (UNet, Swin-UNet, TerraMind) across image modalities (Aerial/MACS, PlanetScope, Sentinel-2).
-- Provide a reproducible end-to-end workflow: preprocessing → tuning → multi-run training → evaluation.
-- Produce logs, saved models, prediction rasters, and CSV summaries that can be evaluated using Bayesian hirarchical models (not yet included here).
-
----
-
-## Quickstart
-
-
-### Configuration
-
-Pick the config for your model and set the `modality` and paths:
-
-- `config/configUnet.py`
-- `config/configSwinUnet.py`
-- `config/configTerraMind.py`
-
-Each config:
-- Uses `modality` (e.g., "AE", "PS", "S2").
-- Writes model artifacts to per-model/per-modality subfolders, for example:
-  - `.../models/UNET/<MODALITY>`
-  - `.../logs/SWIN/<MODALITY>`
-  - `.../results/TERRAMIND/<MODALITY>`
-
-### Run
-
-Using pixi tasks (from your `pixi.toml`):
-
-```toml
-[tasks]
-start = "python ./tools/temp.py"
-unet  = "python ./mainUnet.py"
-swin  = "python ./mainSwinUnet.py"
-terra = "python ./mainTerramind.py"
-```
-
-Execute:
-
-```bash
-
-# full pipelines
-pixi run unet
-pixi run swin
-pixi run terra
-```
-
-Each main script typically runs:
-1) `preprocessing.preprocess_all(config)`
-2) `tuning.tune_<Model>(config)`  (hyperparameter search)
-3) Loop of training runs (e.g., 10)
-4) `evaluation.evaluate_<Model>(config)` (saves masks + CSV rows)
-
-### TerraTorch Backbone Sweep (Experimental)
-
-The `terratorch_benchmark.py` script allows testing multiple TerraTorch foundation model backbones:
-
-```bash
-python terratorch_benchmark.py --epochs 10 --steps-per-epoch 200 --out backbone_results.csv
-```
-
-Options:
-- `--epochs`: Number of training epochs per backbone (default: 8)
-- `--steps-per-epoch`: Training steps per epoch (default: 200)
-- `--val-steps`: Validation steps per epoch (default: 50)
-- `--lr`: Learning rate (default: 1e-4)
-- `--weight-decay`: Weight decay (default: 0.05)
-- `--include`: Filter backbones by substring (e.g., `--include prithvi --include terramind`)
-- `--max-models`: Limit number of backbones to test
-- `--no-pretrained`: Skip loading pretrained weights
-- `--no-amp`: Disable automatic mixed precision
-
-The script will:
-1. Load config from `config.configTerraMind` (or `configUnet`/`configSwinUnet`)
-2. Use the project's data pipeline to load preprocessed frames
-3. Test each backbone from the TerraTorch registry
-4. Save results (validation loss, parameters, training time) to CSV
+Pipeline A is a fairly ordinary supervised segmentation setup inherited from the
+DriftwoodMappingBenchmark codebase (its original README is kept locally at
+`archive/README_DriftwoodMappingBenchmark.md`).
+Pipeline B is the part specific to this project. **Flux is count-based**, so both Swin-UNet bubble detection as well as grouping detected bubbles into seeps and classifying them based on a established classification system (Walter Anthony et al., 2010) matters for flux estimation.
 
 ---
 
-## Project layout
+## Naming Conventions
+
+
+| Tier | One unit is… | Exists after | Code |
+|---|---|---|---|
+| **pixel** | one pixel | model inference | `evaluation.py` |
+| **bubble** | one connected component, or one drawn polygon | connected components / labeling | `tools/eval/`, `tools/labeling/` |
+| **seep** | one **group** of bubbles | the grouper runs | `tools/grouping/`, `tools/classify/` |
+
+In the GeoPackages this means **`bubble_id`** is the per-polygon id
+and **`seep_group_id`** is the seep id; keys are always the tuple
+`(image, seep_group_id)`, never the group id alone, because ids restart per chip.
+
+---
+
+## Pipeline A — detection (Swin-UNet++)
+
+```
+ training_areas.gpkg          preprocessing.py     one GeoTIFF per training area:
+ labels_*.gpkg          ──►   preprocess_all()  ─► [R, G, B, label, boundary]
+ raw aerial .tif                                   + aa_frames_list.json (the split)
+                                                          │
+                                       training.py        ▼
+                                  train_SwinUNetPP()  ── checkpoints ──►  models/SWIN/AE/
+                                                          │
+                                       evaluation.py      ▼
+                                 evaluate_SwinUNetPP() ─► per-chip masks + PIXEL metrics
+```
+
+**Run** `mainSwinUnet.py`; its stages are commented in and
+out by hand. On the cluster each stage has its own Slurm script:
+
+```bash
+sbatch preprocessing.slurm     # python preprocessing.py --config config.configSwinUnet --arch swin
+sbatch training.slurm          # 24 h, h100
+sbatch evaluation.slurm        # 2 h, h100
+sbatch check_config.slurm      # 5 min sanity check that the config validates
+```
+
+**Config.** `config/configSwinUnet.py` is the live one (`configUnetxAE.py` is the
+UNet baseline kept for comparison; everything non-AE is in `archive/config/`).
+Paths are model- and modality-aware: `models/SWIN/AE`, `logs/SWIN/AE`,
+`results/SWIN/AE`.
+
+**Outputs**, per checkpoint, under `results/SWIN/AE/<checkpoint>/`:
+
+| File | Contents |
+|---|---|
+| `<chip>.tif` | hard binary mask |
+| `<chip>_prob.tif` | probability map |
+| `<chip>_epistemic.tif` / `_aleatoric.tif` | MC-dropout uncertainty |
+| `../evaluation_swin.csv` | one row per checkpoint: Dice, IoU, F1, F-beta, sensitivity, specificity, Hausdorff, boundary IoU, uncertainty |
+
+`evaluation.py` then calls Pipeline B's bubble-level eval automatically, so a
+single evaluation run yields both pixel and bubble metrics.
+
+---
+
+## Pipeline B — interpretation (bubbles → seeps → flux)
+
+```
+ predicted mask
+       │
+       ▼
+ tools/eval/write_bubble_rasters.py     morphological closing+opening (disk 1),
+       │                                then connected components
+       ▼                                -> <chip>_smoothed.tif, <chip>_cc.tif
+ tools/eval/bubble_features.py          per-bubble area, perimeter, circularity,
+       │                                solidity, eccentricity, mean RGB
+       ▼
+ tools/eval/bubble_level_eval.py  ────► BUBBLE metrics: precision / recall / F1
+       │
+       ▼   ◄── a bubble becomes part of a SEEP here ──────────────────────────
+ tools/grouping/train_grouper.py        learned pairwise "same-seep?" random forest
+ tools/grouping/deploy_grouper.py       candidate pairs <= 0.5 m -> P(same) -> threshold
+       │                                -> diameter-capped agglomeration (1.0 m)
+       ▼                                -> seep_group_id
+ tools/classify/fit_classifier.py       per-seep A / B / C
+       │
+       ▼
+ count-based flux = SUM over class (n_seeps * per-class rate)
+```
+
+
+### The labeling loop
+
+Labelers work in QGIS on per-bubble packs to train the grouper (deploy_grouper.py) and the classifier (fit_classifier.py), correcting the model's proposed
+grouping and filling the class:
+
+```bash
+python -m tools.labeling.build_eval_chip_pack        # build a pack
+python -m tools.grouping.deploy_grouper PACK.gpkg    # pre-group it + inject the QGIS style
+python -m tools.grouping.build_hull_layer PACK.gpkg  # static hulls (fixes the render stall)
+#   ... labeling happens in QGIS ...
+python -m tools.grouping.grouper_corrections PACK_grouped.gpkg   # edits -> training pairs
+python -m tools.classify.fit_classifier                          # refit + inter-labeler kappa
+```
+
+`deploy_grouper` freezes its proposal in an immutable `seep_group_id_pred`
+column, so a returned pack can be diffed back into grouper training data.
+
+---
+
+## Layout
 
 ```
 .
-├─ mainUnet.py             # UNet pipeline entry point
-├─ mainSwinUnet.py         # Swin-UNet pipeline entry point
-├─ mainTerraMind.py        # TerraMind pipeline entry point
-├─ terratorch_benchmark.py # TerraTorch backbone sweep (experimental)
-|
-├─ preprocessing.py        # builds frame dataset (GeoTIFFs with [bands | label | boundary])
-├─ tuning.py               # hyperparameter tuning (model-specific entrypoints)
-├─ training.py             # shared PyTorch training loop (BF16/FP16 AMP, channels_last, EMA)
-├─ evaluation.py           # batch evaluation: predicts masks + writes metrics CSV
-|
+├─ mainSwinUnet.py          # Pipeline A entry point (stages commented in/out)
+├─ mainUnet.ipynb           # notebook variant
+├─ preprocessing.py         # AOIs + labels + imagery -> training chips
+├─ training.py              # shared training loop (AMP, channels_last, EMA, early stopping)
+├─ tuning.py                # Optuna hyperparameter search
+├─ evaluation.py            # per-checkpoint inference -> masks + PIXEL metrics
+├─ *.slurm                  # cluster job scripts
+│
 ├─ config/
-│  ├─ configUnet.py        # UNet config (model+modality-aware paths)
-│  ├─ configSwinUnet.py    # Swin config (model+modality-aware paths)
-│  └─ configTerraMind.py   # TerraMind config (model+modality-aware paths)
-|
+│  ├─ configSwinUnet.py     # LIVE config (SWIN x AE)
+│  └─ configUnetxAE.py      # UNet baseline, kept for comparison
+│
 ├─ core/
-│  ├─ UNet.py              # UNet model
-│  ├─ Swin_UNetPP.py       # Swin-UNet model
-│  ├─ TerraMind.py         # TerraMind wrapper
-|  |
-│  ├─ common/
-│  │  ├─ console.py        # colored banners, pretty printing
-│  │  ├─ model_utils.py    # AMP helpers, EMA, logits→probs, autopad forward
-│  │  ├─ data.py           # frame discovery, dataset creation
-│  │  └─ vis.py            # TensorBoard image logging
-|  |
-│  ├─ losses.py            # dice/tversky + helpers
-│  ├─ optimizers.py        # get_optimizer()
-│  ├─ split_frames.py      # split_dataset(), stats
-│  ├─ dataset_generator.py # iterable patch generator
-│  └─ frame_info.py        # FrameInfo container, normalization utils
-└─ tools/
-   └─ temp.py              # random tools used for other unrelated stuff
+│  ├─ Swin_UNetPP.py        # Swin-UNet++ model
+│  ├─ UNet.py               # UNet model
+│  ├─ TerraMind.py          # TerraMind wrapper (unused here)
+│  ├─ losses.py             # dice / tversky
+│  ├─ optimizers.py, split_frames.py, dataset_generator.py, frame_info.py
+│  └─ common/               # console, model utils, data discovery, TensorBoard vis
+│
+├─ tools/                   # Pipeline B  (see tools/README.md for per-script detail)
+│  ├─ eval/                 # pixel -> BUBBLE detection metrics
+│  ├─ labeling/             # build + maintain QGIS labeler packs
+│  ├─ grouping/             # bubble -> SEEP (learned RF grouper)
+│  ├─ classify/             # per-seep A/B/C class + count-based flux
+│  ├─ viz/                  # plotting notebooks
+│  └─ archive/              # superseded / rejected  (untracked, local only)
+│
+├─ analysis/                # Bayesian benchmark stats (architecture comparison)
+└─ archive/                 # non-AE entry points, unused configs, upstream README
+                           #   (untracked, local only — see git history to recover)
 ```
 
----
-
-## Results
-
-- Logs: TensorBoard scalars + images  
-  `logs/<MODEL>/<MODALITY>/<run>/...`
-- Models: best and periodic snapshots  
-  `models/<MODEL>/<MODALITY>/<timestamp>_name.*`
-- Evaluation outputs:
-  - GeoTIFF masks per test frame per checkpoint  
-    `results/<MODEL>/<MODALITY>/<checkpoint_basename>/...`
-  - CSV summary per architecture:  
-    `evaluation_unet.csv`, `evaluation_swin.csv`, `evaluation_tm.csv`
-
-Open TensorBoard:
+Every tool runs as a module from the repo root:
 
 ```bash
-tensorboard --logdir <path-to-logs> --port 6006
+python -m tools.eval.bubble_level_eval
+python -m tools.grouping.deploy_grouper PACK.gpkg --thr 0.6 --cap 1.0
 ```
+
 
 ---
 
-## Data assumptions
+## Environment
 
-- Preprocessing expects AOI and polygon files (`training_area_fn`, `training_polygon_fn`) and raw imagery under `training_image_dir`.
-- Preprocessed frames are GeoTIFFs with bands:
-  ```
-  [input_bands..., label_band, boundary_band]
-  ```
-- `config.preprocessed_dir` can be set to reuse a prepared dataset.
+Local Windows development uses `venv-bubble/` (Python 3.14, `requirements-win.txt`).
+`pixi.toml` defines the linux-64 / CUDA 12.1 cluster environment. `example_env.yml`
+is the conda equivalent.
 
+```bash
+venv-bubble/Scripts/tensorboard --logdir logs/SWIN/AE --port 6006
+```
 
+Detailed history, decisions and negative results are in `CLAUDE.md`; per-script
+documentation is in `tools/README.md`.
