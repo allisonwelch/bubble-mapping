@@ -11,7 +11,8 @@ The work splits into **two pipelines that meet at a raster of predicted pixels**
 | **B** | **Interpretation** — group, classify, integrate | seeps, their A/B/C class, and flux | `tools/` |
 
 Pipeline A is a fairly ordinary supervised segmentation setup inherited from the
-[DriftwoodMappingBenchmark](archive/README_DriftwoodMappingBenchmark.md) codebase.
+DriftwoodMappingBenchmark codebase (its original README is kept locally at
+`archive/README_DriftwoodMappingBenchmark.md`).
 Pipeline B is the part specific to this project. **Flux is count-based**, so both Swin-UNet bubble detection as well as grouping detected bubbles into seeps and classifying them based on a established classification system (Walter Anthony et al., 2010) matters for flux estimation.
 
 ---
@@ -149,10 +150,11 @@ column, so a returned pack can be diffed back into grouper training data.
 │  ├─ grouping/             # bubble -> SEEP (learned RF grouper)
 │  ├─ classify/             # per-seep A/B/C class + count-based flux
 │  ├─ viz/                  # plotting notebooks
-│  └─ archive/              # superseded / rejected, kept for provenance
+│  └─ archive/              # superseded / rejected  (untracked, local only)
 │
 ├─ analysis/                # Bayesian benchmark stats (architecture comparison)
 └─ archive/                 # non-AE entry points, unused configs, upstream README
+                           #   (untracked, local only — see git history to recover)
 ```
 
 Every tool runs as a module from the repo root:

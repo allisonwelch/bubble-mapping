@@ -107,4 +107,4 @@ grouping (`seep_group_id`) and fill the class (`A`/`B`/`C`).
 |---|---|
 | `historical_size_priors.py` | Distills the historical field workbooks into grouping geometry + per-class size priors. |
 | `viz/` | Plotting notebooks: loss curves, example frames, prediction overlays. |
-| `archive/` | Superseded, rejected, or already-applied. Nothing here is imported by live code — see `archive/README.md`. |
+| `archive/` | Superseded, rejected, or already-applied. **Untracked** (local only; recover from git history). Nothing here is imported by live code — see `archive/README.md`. |

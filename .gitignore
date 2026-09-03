@@ -33,3 +33,9 @@ renv.lock
 .positai
 HANDOFF_naming_cleanup.md
 .mcp.json
+
+# Archived code: superseded / rejected / already-applied.
+# Kept on disk for reference; recover any version from git history, e.g.
+#   git checkout 01c5a1e -- archive/ tools/archive/
+archive/
+tools/archive/
