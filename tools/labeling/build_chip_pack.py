@@ -7,7 +7,7 @@ this when you want to run the grouping + A/B/C classification exercise over a
 whole dense chip (e.g. chip 39, the over-merge canary) instead of the sampled
 750-seep allocation.
 
-Source polygons come straight from `gt_seeps.gpkg`, whose rows are the original
+Source polygons come straight from `gt_bubbles.gpkg`, whose rows are the original
 drawn polygons clipped per-chip (built by `build_gt_bubbles_from_source`), tagged
 with an `image` column. "Intersects chip N" is therefore exactly the rows whose
 `image == "<N>.tif"` -- those are already clipped to the chip footprint and carry
@@ -18,11 +18,11 @@ Columns added on top of gt_seeps to match the labeler-pack schema:
                       sol_bin, sol_label  (strata via the allocation script's
                       assign_strata, computed over the FULL gt population so the
                       cuts match the existing packs)
-  * grouping fields:  seep_group_id (default = seep_id), is_pregrouped (0)
+  * grouping fields:  seep_group_id (default = bubble_id), is_pregrouped (0)
   * class reset to '' for QGIS attribute-table labeling
 
 The labeler grouping rule is unchanged: to group a cluster, set every member's
-seep_group_id to the anchor (largest) bubble's own seep_id. seep_id is unique
+seep_group_id to the anchor (largest) bubble's own bubble_id. bubble_id is unique
 within a chip, so this is collision-free.
 """
 
@@ -38,7 +38,7 @@ from tools.labeling.strata import assign_strata
 PRED_DIR = os.path.join(
     REPO_PATH, "data", "results", "SWIN", "AE", "20260428-1537_SWINxAE.weights"
 )
-GT_PATH = os.path.join(PRED_DIR, "gt_seeps.gpkg")
+GT_PATH = os.path.join(PRED_DIR, "gt_bubbles.gpkg")
 OUT_DIR = os.path.join(PRED_DIR, "labeling")
 
 CHIP = "39.tif"          # which chip's polygons to pack
@@ -46,7 +46,7 @@ LABELER_TAG = "chip39"   # value for the `labeler` column
 
 # Exact column order of gt_seeps_label_labeler_*.gpkg (post group-fields add).
 PACK_COLS = [
-    "image", "seep_id", "class", "labeler", "is_calibration",
+    "image", "bubble_id", "class", "labeler", "is_calibration",
     "area_bin", "area_label", "sol_bin", "sol_label",
     "centroid_x_m", "centroid_y_m", "area_m2", "perim_m", "circularity",
     "solidity", "eccentricity", "mean_R", "mean_G", "mean_B",
@@ -65,13 +65,13 @@ def main():
     pack = gt[gt["image"] == CHIP].copy()
     print(f"\n{CHIP}: {len(pack)} label polygons intersecting the chip")
     if pack.empty:
-        raise SystemExit(f"no polygons with image == {CHIP!r} in gt_seeps.gpkg")
+        raise SystemExit(f"no polygons with image == {CHIP!r} in gt_bubbles.gpkg")
 
     # Reset class for labeling; add allocation + grouping fields.
     pack["class"] = ""
     pack["labeler"] = LABELER_TAG
     pack["is_calibration"] = False
-    pack["seep_group_id"] = pack["seep_id"]   # singleton groups to start
+    pack["seep_group_id"] = pack["bubble_id"]   # singleton groups to start
     pack["is_pregrouped"] = 0
     # Categorical strata labels -> plain str, matching the existing packs.
     pack["area_label"] = pack["area_label"].astype(str)
@@ -87,7 +87,7 @@ def main():
     pack.to_file(out_path, driver="GPKG")
     print(f"\nwrote {os.path.basename(out_path)}  ({len(pack)} polygons)")
     print(f"  -> {out_path}")
-    print(f"  seep_group_id seeded = seep_id (all singletons), is_pregrouped = 0, class blank")
+    print(f"  seep_group_id seeded = bubble_id (all singletons), is_pregrouped = 0, class blank")
 
 
 if __name__ == "__main__":

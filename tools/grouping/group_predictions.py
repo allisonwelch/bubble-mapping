@@ -3,7 +3,7 @@ grouping looks at serve time.
 
 Train/serve gap to keep in mind: the grouper is trained on hand-drawn GT bubble
 polygons, but here it is applied to the detector's connected-component bubbles
-(`seep_features_per_bubble.csv` / `{stem}_cc.tif`), which differ from GT by
+(`bubble_features.csv` / `{stem}_cc.tif`), which differ from GT by
 fragmentation, missed/false bubbles, feature shift, and -- critically -- have NO
 envelope (is_pregrouped) concept. The grouping LOGIC is a learned distance-join
 (dist dominates), which transfers reasonably; the INPUT bubble set is the
@@ -32,7 +32,7 @@ from tools.grouping.train_grouper import FEATURES, AGGLOM_CAP_M
 from tools.eval.bubble_features import polygonize_labels
 
 PD = "data/results/SWIN/AE/20260428-1537_SWINxAE.weights"
-PRED_BUBBLES = PD + "/seep_features_per_bubble.csv"
+PRED_BUBBLES = PD + "/bubble_features.csv"
 OUT_GPKG = PD + "/pred_bubbles_grouped.gpkg"
 THR = 0.6
 

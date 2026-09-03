@@ -14,9 +14,9 @@ detector trained alongside for model selection and are NOT the evaluation chips.
 
 These chips are already partly labeled -- the quarter packs cover only sub-quarters
 of some of them (4-SE, 21-NE, 38-SW, ...), so most polygons here are still blank.
-The pack is built fresh from source, so its per-chip `seep_id` numbering is its
+The pack is built fresh from source, so its per-chip `bubble_id` numbering is its
 own; it does NOT carry over the quarter packs' existing class/grouping. Treat this
-as a separate labeling surface, and reconcile on geometry (not on seep_id) if you
+as a separate labeling surface, and reconcile on geometry (not on bubble_id) if you
 later need to merge it with the quarter packs.
 
 Chips in `labeling/chips` are RGB+alpha (band 4 is a constant 255 alpha, not a GT
@@ -25,7 +25,7 @@ picks up RGB.
 
 Output schema is byte-compatible with `gt_seeps_label_quarters_*_grouped.gpkg` so
 the same QGIS workflow, style, and downstream tools apply unchanged. `class` is
-blank and `seep_group_id` defaults to `seep_id`; run
+blank and `seep_group_id` defaults to `bubble_id`; run
 `tools/grouping/deploy_grouper.py` on the result to pre-group it (that step also adds
 `seep_group_id_pred` / `group_source` and injects the hull style).
 
@@ -53,7 +53,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Exact column order of gt_seeps_label_quarters_*_grouped.gpkg.
 PACK_COLS = [
-    "image", "seep_id", "class", "seep_group_id", "is_pregrouped",
+    "image", "bubble_id", "class", "seep_group_id", "is_pregrouped",
     "is_overgrouped", "labeler", "is_calibration",
     "area_bin", "area_label", "sol_bin", "sol_label",
     "centroid_x_m", "centroid_y_m", "area_m2", "perim_m", "circularity",
@@ -143,14 +143,14 @@ def main() -> None:
 
     gt = gpd.GeoDataFrame(pd.concat(parts, ignore_index=True), crs=src.crs)
 
-    # seep_id is PER-CHIP (2026-05-29): renumber 1..N within each image so the
+    # bubble_id is PER-CHIP (2026-05-29): renumber 1..N within each image so the
     # anchor-id grouping rule stays collision-free inside a chip. Groups must
     # always be keyed on the (image, seep_group_id) TUPLE downstream.
-    gt["seep_id"] = gt.groupby("image").cumcount() + 1
+    gt["bubble_id"] = gt.groupby("image").cumcount() + 1
 
     gt = assign_strata(gt)
     gt["class"] = ""
-    gt["seep_group_id"] = gt["seep_id"]          # every polygon its own singleton
+    gt["seep_group_id"] = gt["bubble_id"]          # every polygon its own singleton
     gt["is_pregrouped"] = 0                      # human judgment; set in QGIS
     gt["is_overgrouped"] = 0
     gt["labeler"] = args.labeler
@@ -166,7 +166,7 @@ def main() -> None:
     print(f"\n[out] {args.out}")
     print(f"  {len(gt)} polygons over {gt['image'].nunique()} chips")
     print("  per chip:", gt["image"].value_counts().sort_index().to_dict())
-    big = gt.nlargest(10, "area_m2")[["image", "seep_id", "area_m2"]]
+    big = gt.nlargest(10, "area_m2")[["image", "bubble_id", "area_m2"]]
     print("\n  10 largest polygons (start C-hunting here):")
     print("   " + big.to_string(index=False).replace("\n", "\n   "))
     print("\nnext: python -m tools.grouping.deploy_grouper "

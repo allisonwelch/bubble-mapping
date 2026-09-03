@@ -19,7 +19,7 @@ The three labelers overlap on a shared calibration set (units 21-NE, 38-SW,
 Naive k-fold would put labeler A's copy in train and labeler B's copy in test
 and report a badly inflated score. Every seep is therefore assigned a
 `phys_id` -- connected components over "shares at least one member (image,
-seep_id)" -- and all cross-validation is GROUPED on `phys_id`, so every copy of
+bubble_id)" -- and all cross-validation is GROUPED on `phys_id`, so every copy of
 a seep lands in the same fold. Leave-one-image-out is reported alongside as the
 harder cross-chip generalization test.
 
@@ -113,7 +113,7 @@ def dissolve_to_seeps(g: gpd.GeoDataFrame) -> pd.DataFrame:
             "is_context": int(sub["is_context"].max()),
             "is_pregrouped": int(sub["is_pregrouped"].max()),
             "is_overgrouped": int(sub["is_overgrouped"].max()),
-            "members": frozenset(zip(sub["image"], sub["seep_id"].astype(int))),
+            "members": frozenset(zip(sub["image"], sub["bubble_id"].astype(int))),
         })
     if mixed:
         print(f"    [note] {mixed} mixed-class group(s) resolved by C>B>A")
@@ -121,7 +121,7 @@ def dissolve_to_seeps(g: gpd.GeoDataFrame) -> pd.DataFrame:
 
 
 def assign_phys_id(seeps: pd.DataFrame) -> pd.Series:
-    """Union-find: seeps sharing any member (image, seep_id) are one physical seep.
+    """Union-find: seeps sharing any member (image, bubble_id) are one physical seep.
 
     This is what makes the cross-validation honest across the shared calibration
     units -- all three labelers' copies of a seep get the same id and therefore
@@ -158,7 +158,7 @@ def kappa_report(packs: dict[str, gpd.GeoDataFrame]) -> None:
 
     Agreement is measured per-POLYGON, not per-seep: the labelers grouped
     differently, so there is no shared seep unit to compare on, but every pack
-    is built from the same underlying bubble polygons keyed by (image, seep_id).
+    is built from the same underlying bubble polygons keyed by (image, bubble_id).
     Both unweighted and linearly-weighted kappa are given -- weighted is the
     honest one for an ordered A<B<C scale, since an A/C disagreement is worse
     than an A/B one.
@@ -169,8 +169,8 @@ def kappa_report(packs: dict[str, gpd.GeoDataFrame]) -> None:
 
     for a, b in itertools.combinations(LABELERS, 2):
         A, B = packs[a], packs[b]
-        m = A[["image", "seep_id", "unit", "class"]].merge(
-            B[["image", "seep_id", "class"]], on=["image", "seep_id"],
+        m = A[["image", "bubble_id", "unit", "class"]].merge(
+            B[["image", "bubble_id", "class"]], on=["image", "bubble_id"],
             suffixes=("_a", "_b"))
         both = m[(m["class_a"] != "") & (m["class_b"] != "")]
         shared = sorted(set(A["unit"].dropna()) & set(B["unit"].dropna()))
@@ -193,14 +193,14 @@ def kappa_report(packs: dict[str, gpd.GeoDataFrame]) -> None:
     keys = None
     for who in LABELERS:
         k = set(map(tuple, packs[who].loc[packs[who]["class"] != "",
-                                          ["image", "seep_id"]].values))
+                                          ["image", "bubble_id"]].values))
         keys = k if keys is None else keys & k
     print(f"\nPolygons classified by all three: n={len(keys)}")
     if keys:
-        idx = pd.MultiIndex.from_tuples(sorted(keys), names=["image", "seep_id"])
+        idx = pd.MultiIndex.from_tuples(sorted(keys), names=["image", "bubble_id"])
         mat = pd.DataFrame(index=idx)
         for who in LABELERS:
-            s = packs[who].set_index(["image", "seep_id"])["class"]
+            s = packs[who].set_index(["image", "bubble_id"])["class"]
             mat[who] = s.reindex(idx).values
         counts = np.stack([(mat == c).sum(axis=1).to_numpy() for c in CLASSES], 1)
         print(f"  Fleiss' kappa = {fleiss_kappa(counts):.3f}  "
@@ -271,7 +271,11 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--labeling-dir", default=os.path.join(
         "data", "results", "SWIN", "AE", "20260428-1537_SWINxAE.weights",
-        "labeling"))
+        "labeling", "final_labeler_packs"),
+        help="directory holding the three *_grouped.gpkg labeler packs. "
+             "Defaults to final_labeler_packs/, where all three now live; "
+             "the parent labeling/ dir holds only katey's, so a run there "
+             "used to silently find 1 of 3 packs.")
     ap.add_argument("--max-depth", type=int, default=0,
                     help="0 = sweep 2..6 and pick best grouped-CV macro-F1")
     ap.add_argument("--seed", type=int, default=42)
@@ -285,6 +289,12 @@ def main() -> None:
     for who in LABELERS:
         fp = os.path.join(args.labeling_dir,
                           f"gt_seeps_label_quarters_{who}_grouped.gpkg")
+        if not os.path.exists(fp):
+            raise SystemExit(
+                f"missing labeler pack for {who!r}: {fp}\n"
+                f"All three of {LABELERS} must be present -- fitting on a "
+                f"subset silently changes the class balance and the kappa "
+                f"report. Pass --labeling-dir if they live elsewhere.")
         g = load_pack(fp, who)
         packs[who] = g
         s = dissolve_to_seeps(g)

@@ -7,7 +7,7 @@ Pipeline
      (chip-39 + quarter packs) -- see train_grouper.py.
   2. for the target pack, per image: candidate pairs within 0.5 m among
      eligible bubbles -> P(same) -> threshold -> connected components -> seeps.
-     seep_group_id = the MAX seep_id among a component's members (anchor-id
+     seep_group_id = the MAX bubble_id among a component's members (anchor-id
      convention; collision-safe within a chip; matches the labeler rubric).
   3. write seep_group_id back IN PLACE on a copy (sqlite UPDATE by fid, so the
      geometry, spatial index, and existing layer_styles are untouched). Also
@@ -171,7 +171,7 @@ def group_pack(df, clf, thr, cap=AGGLOM_CAP_M, flag_envelope_area_m2=None):
         m = len(elig)
         elig_xy = elig[["centroid_x_m", "centroid_y_m"]].to_numpy(float)
         comp = constrained_cluster(m, pp[keep], proba[keep], elig_xy, cap)
-        elig_ids = elig["seep_id"].to_numpy(np.int64)
+        elig_ids = elig["bubble_id"].to_numpy(np.int64)
         for cid in np.unique(comp):
             members = np.where(comp == cid)[0]
             anchor = int(elig_ids[members].max())          # collision-safe
@@ -333,7 +333,7 @@ def main():
 
     con = sqlite3.connect(args.pack)
     df = pd.read_sql_query(
-        "SELECT fid, image, seep_id, COALESCE(seep_group_id, seep_id) AS seep_group_id, "
+        "SELECT fid, image, bubble_id, COALESCE(seep_group_id, bubble_id) AS seep_group_id, "
         "class, centroid_x_m, centroid_y_m, area_m2, "
         "circularity, eccentricity, solidity, mean_R, mean_G, mean_B, "
         "is_pregrouped, COALESCE(is_overgrouped,0) AS is_overgrouped "

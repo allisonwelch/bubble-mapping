@@ -5,7 +5,7 @@ Motivating case (2026-07-29, Prajna): the labeler classified every polygon on an
 OLD, UNGROUPED copy of the pack, so their `seep_group_id` is ~all singletons and
 must be discarded -- only their `class` (and `notes`) are salvageable. The master
 pack carries the authoritative model grouping, so classes are joined back on
-(image, seep_id) and then dissolved within each (image, seep_group_id).
+(image, bubble_id) and then dissolved within each (image, seep_group_id).
 
 "Dissolve" here means: every polygon sharing a seep group gets the SAME class,
 taken as the LARGEST class present in that group (C > B > A). A seep is one
@@ -77,7 +77,7 @@ def main() -> None:
     # --- master attributes, straight from sqlite so we keep the real fid ------
     con = sqlite3.connect(args.master)
     master = pd.read_sql(
-        f'SELECT fid, image, seep_id, seep_group_id, is_context FROM "{args.layer}"',
+        f'SELECT fid, image, bubble_id, seep_group_id, is_context FROM "{args.layer}"',
         con)
     con.close()
 
@@ -86,9 +86,9 @@ def main() -> None:
         ret = ret.drop(columns="geometry")
     # Shapefiles truncate field names to 10 chars and store ints as floats.
     ret = ret.rename(columns={"seep_group": "seep_group_id_labeler"})
-    ret["seep_id"] = ret["seep_id"].astype("int64")
+    ret["bubble_id"] = ret["bubble_id"].astype("int64")
 
-    keys = ["image", "seep_id"]
+    keys = ["image", "bubble_id"]
     for name, frame in (("master", master), ("returned", ret)):
         dup = frame.duplicated(keys).sum()
         if dup:

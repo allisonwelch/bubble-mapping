@@ -41,7 +41,7 @@ WHAT IT WRITES (into the pack itself unless -o is given)
     outline. Switch `labels` to this (Layer Styling -> style dropdown) to actually
     get the speedup -- adding the hull layer does nothing on its own while
     `labels` is still rendering the generator.
-  * SQLite indexes on labels(image, seep_group_id) and labels(image, seep_id).
+  * SQLite indexes on labels(image, seep_group_id) and labels(image, bubble_id).
     These do NOT speed the generator (its concat() filter is not index-usable)
     but they do speed the subset filter above, attribute-table sorting, and the
     (image, seep_group_id) joins every tool here does.
@@ -110,10 +110,10 @@ def build_hulls(pack):
     gdf = gpd.read_file(pack, layer="labels")
     n_in = len(gdf)
 
-    # seep_group_id defaults to the row's own seep_id (the pack convention); a
+    # seep_group_id defaults to the row's own bubble_id (the pack convention); a
     # NULL here means "never grouped", not "group 0".
     sg = pd.to_numeric(gdf.get("seep_group_id"), errors="coerce")
-    sg = sg.fillna(pd.to_numeric(gdf["seep_id"], errors="coerce")).astype("int64")
+    sg = sg.fillna(pd.to_numeric(gdf["bubble_id"], errors="coerce")).astype("int64")
     gdf = gdf.assign(_sg=sg)
     # ids restart at 1 in every chip, so the group key is the (image, id) TUPLE.
     # Never key on seep_group_id alone (it silently merges seeps across chips).
@@ -344,13 +344,13 @@ def inject_style(gpkg, table, name, qml, as_default, description=""):
 
 
 def add_indexes(gpkg, table="labels"):
-    """Attribute indexes for the (image, seep_group_id) / (image, seep_id) keys
+    """Attribute indexes for the (image, seep_group_id) / (image, bubble_id) keys
     every tool here joins on. GDAL ignores extra indexes, so this is safe."""
     con = sqlite3.connect(gpkg)
     cur = con.cursor()
     have = {r[1] for r in cur.execute(f'PRAGMA table_info("{table}")')}
     made = []
-    for cols in (("image", "seep_group_id"), ("image", "seep_id")):
+    for cols in (("image", "seep_group_id"), ("image", "bubble_id")):
         if not set(cols) <= have:
             continue
         idx = f"{table}_{'_'.join(cols)}_idx"

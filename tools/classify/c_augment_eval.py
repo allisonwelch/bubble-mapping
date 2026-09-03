@@ -260,7 +260,7 @@ def main() -> None:
 
     # phys_id MUST be computed on the UNFILTERED pooled set, then filtered --
     # never the other way round. Union-find links seeps that share a member
-    # (image, seep_id), and those links can run THROUGH a row that the
+    # (image, bubble_id), and those links can run THROUGH a row that the
     # context/overgrouped filter drops: if excluded seep X shares members with
     # both Y and Z, only the unfiltered pass puts Y and Z in one group. Filtering
     # first silently splits such groups and weakens the leakage guard -- measured

@@ -29,7 +29,7 @@ DATA SOURCES
     (the authority for 39.tif; per-bubble, NOT dissolved).
   * gt_seeps_label_quarters_katey_kwa.gpkg -- 4/38/21/39.tif quarter labels.
     Its 39.tif rows are DROPPED (chip-39 file is the authority) to avoid a
-    seep_id / seep_group_id collision on that image.
+    bubble_id / seep_group_id collision on that image.
   * gt_seeps_label_chip39.gpkg -- full 1585-bubble 39.tif field (density only).
 
 ROW FILTERING (target/training)
@@ -118,7 +118,7 @@ def load_labeled():
     # 39.tif authority = chip-39 file; drop kwa's overlapping 39.tif rows.
     kwa = kwa[kwa["image"] != "39.tif"].copy()
 
-    keep = ["image", "seep_id", "class", "seep_group_id", "is_pregrouped",
+    keep = ["image", "bubble_id", "class", "seep_group_id", "is_pregrouped",
             "is_overgrouped", "is_context", "centroid_x_m", "centroid_y_m",
             "area_m2", "circularity", "eccentricity", "solidity",
             "mean_R", "mean_G", "mean_B", "geometry"]

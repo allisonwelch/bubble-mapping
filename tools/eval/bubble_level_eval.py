@@ -14,10 +14,10 @@ Pipeline position:
                                   tools/archive/polygon_matcher.py
 
 Outputs (to out_dir, default pred_dir):
-    seep_level_summary.csv    one wide row: P/R/F1 + matched-pair feature r
-    seep_level_per_image.csv  per-chip counts and r
-    seep_level_pairs.csv      one row per matched (pred CC, GT CC) pair
-    seep_features_per_bubble.csv
+    bubble_level_summary.csv    one wide row: P/R/F1 + matched-pair feature r
+    bubble_level_per_image.csv  per-chip counts and r
+    bubble_level_pairs.csv      one row per matched (pred CC, GT CC) pair
+    bubble_features.csv
     {stem}_smoothed.tif, {stem}_cc.tif, optional {stem}_snow.tif
 
 REMOVED 2026-09-03 -- the cluster-level half. `cluster_f1 = 0.672` was produced
@@ -328,8 +328,8 @@ def main(pred_dir, chip_dir,
           f"area={global_r['area_m2']:.3f} perim={global_r['perim_m']:.3f} "
           f"circ={global_r['circularity']:.3f}")
 
-    df.to_csv(os.path.join(out_dir, "seep_level_per_image.csv"), index=False)
-    pairs_df.to_csv(os.path.join(out_dir, "seep_level_pairs.csv"), index=False)
+    df.to_csv(os.path.join(out_dir, "bubble_level_per_image.csv"), index=False)
+    pairs_df.to_csv(os.path.join(out_dir, "bubble_level_pairs.csv"), index=False)
     pd.DataFrame([{
         "n_images": len(df), "n_pairs": len(pairs_df),
         "snow_mask_enabled": bool(snow_mask_enabled),
@@ -347,7 +347,7 @@ def main(pred_dir, chip_dir,
         "r_area_m2": global_r["area_m2"],
         "r_perim_m": global_r["perim_m"],
         "r_circularity": global_r["circularity"],
-    }]).to_csv(os.path.join(out_dir, "seep_level_summary.csv"), index=False)
+    }]).to_csv(os.path.join(out_dir, "bubble_level_summary.csv"), index=False)
 
     if bubble_dfs:
         _bubble_feat_write_csvs(out_dir, pd.concat(bubble_dfs, ignore_index=True))

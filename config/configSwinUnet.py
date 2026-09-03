@@ -217,7 +217,7 @@ class Configuration:
         # FPs. A {stem}_snow.tif is also written per chip when
         # write_snow_rasters=True so the mask can be overlaid on the chip in
         # QGIS to verify it isn't eating real bubbles. Tune by toggling
-        # snow_mask_enabled and inspecting seep_level_summary.csv columns
+        # snow_mask_enabled and inspecting bubble_level_summary.csv columns
         # `snow_pct_masked` (how much of the image the mask hits) and
         # `snow_ccs_dropped` (how many CCs were filtered out).
         #

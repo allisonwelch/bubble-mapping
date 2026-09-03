@@ -40,7 +40,7 @@ with the updated deploy_grouper.py. It warns and skips a pack that lacks
 the snapshot.
 
 ID-NAMESPACE: groups are only unique within an image; every key here is the
-(image, seep_id) / (image, seep_group_id) tuple. Candidate pairs are built
+(image, bubble_id) / (image, seep_group_id) tuple. Candidate pairs are built
 within each image only, so cross-image id reuse can never create a spurious pair.
 
 Usage:
@@ -58,8 +58,8 @@ from tools.grouping.train_grouper import CAND_RADIUS, FEATURES
 from tools.grouping.deploy_grouper import _pair_features
 
 SNAP_COL = "seep_group_id_pred"
-READ_COLS = ("fid, image, seep_id, "
-             "COALESCE(seep_group_id, seep_id) AS seep_group_id, "
+READ_COLS = ("fid, image, bubble_id, "
+             "COALESCE(seep_group_id, bubble_id) AS seep_group_id, "
              f"{SNAP_COL}, group_source, labeler, "
              "COALESCE(is_calibration,0) AS is_calibration, "
              "centroid_x_m, centroid_y_m, area_m2, circularity, eccentricity, "
@@ -93,7 +93,7 @@ def pack_pairs(path, corrected_weight):
             continue
         pred = elig[SNAP_COL].to_numpy()              # frozen model proposal
         final = elig["seep_group_id"].to_numpy()      # labeler-final
-        sid = elig["seep_id"].to_numpy(np.int64)
+        sid = elig["bubble_id"].to_numpy(np.int64)
         cal = elig["is_calibration"].fillna(0).astype(int).to_numpy()
         for k, (p, q) in enumerate(pp):
             ms = bool(pred[p] == pred[q])

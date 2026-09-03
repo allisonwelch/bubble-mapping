@@ -11,7 +11,7 @@ merged into a single CC the way the rasterize -> CC -> repolygonize path
 used to merge them.
 
 QGIS workflow:
-  - Load gt_seeps.gpkg in QGIS, chip imagery as basemap underneath.
+  - Load gt_bubbles.gpkg in QGIS, chip imagery as basemap underneath.
   - Toggle editing on the layer -> open attribute table -> fill `class`.
   - Save edits -> ship the .gpkg back.
 
@@ -49,7 +49,7 @@ def _load_source_polygons(source_polygons_fp):
 
 def main(chip_dir, out_dir, source_polygons_fp,
          pred_dir=None, glob_pattern="*.tif"):
-    """Build gt_seeps.gpkg from the ORIGINAL drawn polygons.
+    """Build gt_bubbles.gpkg from the ORIGINAL drawn polygons.
 
     Scope of which chips to include is controlled by `pred_dir`:
       - If pred_dir is given, only chips whose basename matches a prediction
@@ -88,7 +88,7 @@ def main(chip_dir, out_dir, source_polygons_fp,
     print(f"processing {scope_label}")
     gdfs = []
     for fp in tqdm(chip_fps, desc="GT bubble polygons"):
-        g = build_gt_bubbles_from_source(fp, src_gdf, id_name="seep_id")
+        g = build_gt_bubbles_from_source(fp, src_gdf, id_name="bubble_id")
         if g is None or g.empty:
             continue
         g.insert(0, "image", os.path.basename(fp))
@@ -101,7 +101,7 @@ def main(chip_dir, out_dir, source_polygons_fp,
             f"Check that source_polygons_fp covers the same area as the chips."
         )
     os.makedirs(out_dir, exist_ok=True)
-    out_fp = os.path.join(out_dir, "gt_seeps.gpkg")
+    out_fp = os.path.join(out_dir, "gt_bubbles.gpkg")
     write_bubbles_gpkg(out_fp, gdfs, class_column=True)
     total = sum(len(g) for g in gdfs)
     print(f"\nWrote {total} GT seeps from {len(gdfs)} chips to {out_fp}")
@@ -114,7 +114,7 @@ def _parse_args():
     p.add_argument("--chip_dir", default=None,
                    help="Directory of chip .tif files (default: config.preprocessed_dir)")
     p.add_argument("--out_dir", default=None,
-                   help="Where to write gt_seeps.gpkg (default: pred_dir)")
+                   help="Where to write gt_bubbles.gpkg (default: pred_dir)")
     p.add_argument("--source_polygons", default=None,
                    help="Path to source polygon GPKG "
                         "(default: config.training_data_dir/config.training_polygon_fn)")

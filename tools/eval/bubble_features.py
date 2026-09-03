@@ -13,7 +13,7 @@ Inputs (already on disk after evaluation + write_bubble_rasters):
   - {basename}.tif     matching chip in chip_dir (RGB bands for brightness)
 
 Outputs (written to pred_dir):
-  - seep_features_per_bubble.csv   one row per detected bubble
+  - bubble_features.csv   one row per detected bubble
 
 REMOVED 2026-09-03: the anchor-conditional + "lonely" clustering rule
 (anchor_cluster / lonely_cluster / aggregate_clusters / build_cluster_raster /
@@ -120,7 +120,7 @@ def polygonize_labels(label_array, transform, crs):
     return gdf
 
 
-def labels_to_bubble_gdf(label_array, image, transform, crs, id_name="seep_id"):
+def labels_to_bubble_gdf(label_array, image, transform, crs, id_name="bubble_id"):
     """End-to-end: labels → polygons + features → GeoDataFrame (one row per
     label, with shapely geometry, area/perim/circ/solidity/ecc, mean_R/G/B).
     Use for both GT polygons (label = polygon CC) and pred cluster rasters."""
@@ -134,7 +134,7 @@ def labels_to_bubble_gdf(label_array, image, transform, crs, id_name="seep_id"):
 
 
 def build_gt_bubbles_from_source(chip_fp, source_polygons_gdf,
-                               id_name="seep_id"):
+                               id_name="bubble_id"):
     """Build a per-chip GT-BUBBLE GeoDataFrame from the ORIGINAL drawn polygons.
 
     Use this instead of running labels_to_bubble_gdf on the rasterized GT mask:
@@ -309,7 +309,7 @@ def process_pred(pred_fp, chip_fp,
 
 
 def write_feature_csvs(pred_dir, bubbles):
-    bubbles.to_csv(os.path.join(pred_dir, "seep_features_per_bubble.csv"),
+    bubbles.to_csv(os.path.join(pred_dir, "bubble_features.csv"),
                    index=False)
     _print_summary(bubbles)
 

@@ -25,7 +25,7 @@ Each output GPKG (one per labeler) contains two layers:
 
 Labeler rules (same as chip-39, plus the boundary rule):
   * group a cluster by setting every member's seep_group_id to the anchor
-    (largest) bubble's own seep_id;
+    (largest) bubble's own bubble_id;
   * a group is YOURS iff its anchor is a non-context row (is_context = 0).
     If your group extends to context polygons, include them in the group;
     if the anchor itself is a context row, leave your non-context satellites
@@ -48,7 +48,7 @@ from tools.labeling.strata import assign_strata
 PRED_DIR = os.path.join(
     REPO_PATH, "data", "results", "SWIN", "AE", "20260428-1537_SWINxAE.weights"
 )
-GT_PATH = os.path.join(PRED_DIR, "gt_seeps.gpkg")
+GT_PATH = os.path.join(PRED_DIR, "gt_bubbles.gpkg")
 OUT_DIR = os.path.join(PRED_DIR, "labeling")
 
 CONTEXT_RADIUS_M = 1.0   # historical p99 group extent: any group anchored
@@ -78,7 +78,7 @@ UNIQUE_UNITS = {
 # gt_seeps_label_chip39.gpkg column order (the schema to reproduce), with the
 # two pack-specific additions slotted before geometry.
 PACK_COLS = [
-    "image", "seep_id", "class", "labeler", "is_calibration",
+    "image", "bubble_id", "class", "labeler", "is_calibration",
     "area_bin", "area_label", "sol_bin", "sol_label",
     "centroid_x_m", "centroid_y_m", "area_m2", "perim_m", "circularity",
     "solidity", "eccentricity", "mean_R", "mean_G", "mean_B",
@@ -153,7 +153,7 @@ def build_unit(gt, chip, quads):
     """
     g = gt[gt["image"] == chip]
     if g.empty:
-        raise SystemExit(f"no polygons for chip {chip!r} in gt_seeps.gpkg")
+        raise SystemExit(f"no polygons for chip {chip!r} in gt_bubbles.gpkg")
     chip_stem = os.path.splitext(chip)[0]
 
     if quads == "ALL":
@@ -175,7 +175,7 @@ def to_pack_rows(gdf, labeler, unit_name, is_calibration, is_context):
     rows["class"] = ""
     rows["labeler"] = labeler
     rows["is_calibration"] = is_calibration
-    rows["seep_group_id"] = rows["seep_id"]
+    rows["seep_group_id"] = rows["bubble_id"]
     rows["is_pregrouped"] = 0
     rows["is_overgrouped"] = 0
     rows["unit"] = unit_name
@@ -255,11 +255,11 @@ def main():
         # duplicated across units, are dropped (each polygon appears once)
         if context_frames:
             context_all = pd.concat(context_frames, ignore_index=True)
-            member_keys = set(zip(members_all["image"], members_all["seep_id"]))
+            member_keys = set(zip(members_all["image"], members_all["bubble_id"]))
             context_all = context_all[
-                ~context_all.apply(lambda r: (r["image"], r["seep_id"]) in member_keys, axis=1)
+                ~context_all.apply(lambda r: (r["image"], r["bubble_id"]) in member_keys, axis=1)
             ]
-            context_all = context_all.drop_duplicates(subset=["image", "seep_id"])
+            context_all = context_all.drop_duplicates(subset=["image", "bubble_id"])
             labels = pd.concat([members_all, context_all], ignore_index=True)
         else:
             labels = members_all
