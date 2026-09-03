@@ -40,7 +40,7 @@ A file or column named `seep_*` that runs before `grouping/` is a naming bug.
         eval/bubble_features.py         per-bubble morphology + brightness
                               │
                               ▼
-        eval/bubble_level_eval.py ─────────────────► BUBBLE metrics (P/R/F1 = 0.645)
+        eval/bubble_level_eval.py ─────────────────► BUBBLE metrics (precision/recall/F1)
                               │
                               ▼
         grouping/train_grouper.py       learn pairwise "same-seep?"
@@ -64,10 +64,11 @@ A file or column named `seep_*` that runs before `grouping/` is a naming bug.
 | `bubble_level_eval.py` | **The canonical detection metric.** Matches predicted CCs to GT CCs one-to-one. Writes the summary / per-image / pairs CSVs. |
 | `gt_bubbles_export.py` | The single producer of `gt_bubbles.gpkg`, the per-bubble ground-truth layer every labeler pack is built from. |
 
-There is deliberately **no seep-level eval**. The old `cluster_f1 = 0.672`
-grouped the GT and predicted sides with the *same* hand-tuned rule, so grouping
+There is deliberately **no seep-level eval**. The retired one grouped the GT
+and predicted sides with the *same* hand-tuned rule, so grouping
 error cancelled and it measured detection twice. See
-`archive/polygon_matcher.py` for the honest RF-grouper version and what it needs.
+`archive/polygon_matcher.py` for the honest RF-grouper version and what it
+needs, and CLAUDE.md for the numbers.
 
 ## `labeling/` — QGIS labeler packs
 
@@ -98,7 +99,7 @@ grouping (`seep_group_id`) and fill the class (`A`/`B`/`C`).
 |---|---|
 | `fit_classifier.py` | Fits and validates the A/B/C classifier on the three labeler packs; reports inter-labeler κ. Holds `FLUX_RATE` / `FLUX_SIGMA`. |
 | `model_comparison.py` | Features × model families × training objective. |
-| `c_augment_eval.py` | Does adding hand-hunted C seeps help? (C is ~4% of seeps but ~52% of the flux.) |
+| `c_augment_eval.py` | Does adding hand-hunted C seeps help? C is the rare class that dominates the flux budget. |
 
 ## Other
 
@@ -107,20 +108,3 @@ grouping (`seep_group_id`) and fill the class (`A`/`B`/`C`).
 | `historical_size_priors.py` | Distills the historical field workbooks into grouping geometry + per-class size priors. |
 | `viz/` | Plotting notebooks: loss curves, example frames, prediction overlays. |
 | `archive/` | Superseded, rejected, or already-applied. Nothing here is imported by live code — see `archive/README.md`. |
-
----
-
-## Leakage trap — read before fitting anything on labeler data
-
-The three labelers overlap on a shared calibration set, so the **same physical
-seep appears up to three times** in the pooled data (1,508 seeps over 1,148
-distinct physical seeps). Naive k-fold puts one labeler's copy in train and
-another's in test and reports a badly inflated score.
-
-Every seep gets a `phys_id` (union-find over "shares any member bubble") and
-**all cross-validation is `GroupKFold` on `phys_id`**. Leave-one-image-out is
-reported alongside as the cross-chip test — and LOIO is the regime that counts,
-because deployment is always an unseen chip.
-
-`assign_phys_id` must run **before** any trainable-row filter: group links can
-run *through* a row the filter drops, so filtering first silently splits groups.

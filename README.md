@@ -72,23 +72,6 @@ Paths are model- and modality-aware: `models/SWIN/AE`, `logs/SWIN/AE`,
 `evaluation.py` then calls Pipeline B's bubble-level eval automatically, so a
 single evaluation run yields both pixel and bubble metrics.
 
-> ⚠️ **`preprocessed_dir` and `saved_models_dir` must name the same experiment.**
-> `preprocessed_dir` supplies both the chips AND the train/val/test split, so
-> pointing it at a different preprocessing run than the checkpoint trained on
-> means evaluating on chips that may have been in that model's training split.
-> Nothing errors — the numbers just come out wrong.
->
-> | dir | GT label set | canonical bubble F1 |
-> |---|---|---|
-> | `2026-04-22_SWINxAE` | **full** | **0.6449** |
-> | `2026-04-27_SWINxAE` | certain (no ambiguous) | 0.6135 |
-> | `2026-06-16_SWINxAE` | certain, re-chipped | 0.6135 |
->
-> The two "certain" chippings give identical numbers because they share a label
-> set: excluding ambiguous labels shrinks the GT denominator (21.tif `n_gt`
-> 54 → 40). The canonical checkpoint `20260428-1537` was trained on
-> **`2026-04-22`**, so that is the dir to evaluate it against.
-
 ---
 
 ## Pipeline B — interpretation (bubbles → seeps → flux)
@@ -103,7 +86,7 @@ single evaluation run yields both pixel and bubble metrics.
  tools/eval/bubble_features.py          per-bubble area, perimeter, circularity,
        │                                solidity, eccentricity, mean RGB
        ▼
- tools/eval/bubble_level_eval.py  ────► BUBBLE metrics: P / R / F1 = 0.645
+ tools/eval/bubble_level_eval.py  ────► BUBBLE metrics: precision / recall / F1
        │
        ▼   ◄── a bubble becomes part of a SEEP here ──────────────────────────
  tools/grouping/train_grouper.py        learned pairwise "same-seep?" random forest
@@ -116,32 +99,10 @@ single evaluation run yields both pixel and bubble metrics.
  count-based flux = SUM over class (n_seeps * per-class rate)
 ```
 
-### Why the grouper is a learned model and not a rule
-
-A hand-tuned anchor/radius rule cannot hold big spread-out seeps together
-*and* avoid bridging dense fields of small ones with a single threshold. The
-learned pairwise model gets seep counts to within ~2% of hand delineation
-(360 vs 365) where the old rule over-fragmented by +119 seeps (+38% flux).
-Inter-bubble distance dominates the model; it is essentially a learned
-distance-join, but it is the right framework as labels grow.
-
-The old rule is **deleted** from the pipeline, and the seep-level metric it used
-to produce (`cluster_f1 = 0.672`) is **retired** — it grouped the ground-truth
-*and* predicted sides with the same rule, so grouping error cancelled and it was
-a detection metric wearing a seep-level label. See `tools/archive/polygon_matcher.py`
-for the recipe for an honest replacement.
-
-### Why the classifier matters more than the grouper
-
-Per-seep field flux rates are **A = 16, B = 131, C = 971 mg CH₄/day**. C is ~4%
-of seeps but **~52% of the methane**, so cross-chip C recall is the dominant
-error term. Swapping the grouper moves flux a few points; getting the classes
-wrong moves it by hundreds. The ±14.2% uncertainty on the rates themselves is a
-floor no classifier can beat — always report it alongside.
 
 ### The labeling loop
 
-Labelers work in QGIS on per-bubble packs, correcting the model's proposed
+Labelers work in QGIS on per-bubble packs to train the grouper (deploy_grouper.py) and the classifier (fit_classifier.py), correcting the model's proposed
 grouping and filling the class:
 
 ```bash
@@ -201,27 +162,6 @@ python -m tools.eval.bubble_level_eval
 python -m tools.grouping.deploy_grouper PACK.gpkg --thr 0.6 --cap 1.0
 ```
 
----
-
-## Current numbers
-
-| Stage | Metric | Value |
-|---|---|---|
-| pixel | Dice / IoU | 0.68 / 0.52 |
-| **bubble** | **precision / recall / F1** | **0.571 / 0.741 / 0.645** |
-| seep (grouping) | seep count vs hand delineation | within ~2% (360 vs 365) |
-| seep (class) | Cohen's κ | 0.62, vs human-human 0.52–0.73 |
-
-**Caveats that must travel with these.** Each stage is validated *in isolation* —
-the grouper assumes oracle classes, the classifier assumes correct grouping,
-neither includes detector error, and **there is no composed end-to-end flux
-number**. There is currently **no seep-level detection metric** at all. Always
-quote the cross-chip (leave-one-image-out) regime, never grouped CV, which reads
-optimistic because it shares chips between train and test.
-
-The classifier κ and class-balance figures recorded in `CLAUDE.md` for 2026-07-29
-are **stale** — the labeler packs were completed substantially in August (one went
-from 289 to 1138 classified rows) — and should be recomputed before being cited.
 
 ---
 
