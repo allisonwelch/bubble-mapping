@@ -44,9 +44,15 @@ class Configuration:
         # certain dataset (no toolik), re-chipped to inherit the canonical
         # 20260428-1537 train/val/test split (see split_list_path below). Fresh
         # dir so the old certain-split chips in 2026-04-27_SWINxAE are left intact.
+        # self.preprocessed_dir = (
+        #     f"{REPO_PATH}/data/preprocessed/"
+        #     f"2026-06-16_SWINxAE"
+        # )
+
+        # Full dataset
         self.preprocessed_dir = (
             f"{REPO_PATH}/data/preprocessed/"
-            f"2026-06-16_SWINxAE"
+            f"2026-04-22_SWINxAE"
         )
 
         # Checkpointing / logs / results (model + modality subfolders)
@@ -58,7 +64,7 @@ class Configuration:
         # Fresh, empty dir so evaluation.py's non-recursive glob picks up ONLY
         # this run's checkpoints (not the old 20260615 continued run).
         self.saved_models_dir = (
-            f"{REPO_PATH}/data/models/SWIN/{self.modality}/certain_cannonsplit_20260616_SWINxAE"
+            f"{REPO_PATH}/data/models/SWIN/{self.modality}"
         )
         self.logs_dir = (
             f"{REPO_PATH}/data/logs/SWIN/{self.modality}"
