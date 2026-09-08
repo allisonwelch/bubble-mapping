@@ -24,6 +24,7 @@ import glob
 import argparse
 from tqdm import tqdm
 
+from tools.paths import CANONICAL_PRED_SUBDIR
 from tools.eval.bubble_features import (
     build_gt_bubbles_from_source,
     write_bubbles_gpkg,
@@ -134,7 +135,7 @@ if __name__ == "__main__":
         config = configSwinUnet.Configuration().validate()
         chip_dir = args.chip_dir or config.preprocessed_dir
         out_dir = args.out_dir or os.path.join(
-            config.results_dir, "20260428-1537_SWINxAE.weights"
+            config.results_dir, CANONICAL_PRED_SUBDIR
         )
         source_polygons_fp = args.source_polygons or os.path.join(
             config.training_data_dir, config.training_polygon_fn

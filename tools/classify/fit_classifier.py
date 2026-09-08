@@ -267,10 +267,11 @@ def evaluate(name, clf, X, y, groups, cv) -> dict:
             "flux_err_pct": err, "rate_unc_pct": rate_unc}
 
 
+from tools.paths import CANONICAL_PRED_SUBDIR
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--labeling-dir", default=os.path.join(
-        "data", "results", "SWIN", "AE", "20260428-1537_SWINxAE.weights",
+        "data", "results", "SWIN", "AE", CANONICAL_PRED_SUBDIR,
         "labeling", "final_labeler_packs"),
         help="directory holding the three *_grouped.gpkg labeler packs. "
              "Defaults to final_labeler_packs/, where all three now live; "

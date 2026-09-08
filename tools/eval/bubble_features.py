@@ -45,8 +45,7 @@ except ImportError:
 
 
 _AUX_SUFFIXES = ("_prob.tif", "_epistemic.tif", "_aleatoric.tif",
-                 "_smoothed.tif", "_cc.tif", "_seep_cluster.tif",
-                 "_snow.tif")
+                 "_smoothed.tif", "_cc.tif", "_snow.tif")
 
 
 def _aux_path(pred_fp, suffix):

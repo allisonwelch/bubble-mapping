@@ -12,6 +12,8 @@ from skimage.measure import label
 from skimage.morphology import binary_closing, binary_dilation, binary_opening, disk
 from tqdm import tqdm
 
+from tools.paths import CANONICAL_PRED_SUBDIR
+
 # Auxiliary outputs that should be skipped when walking a prediction directory.
 _AUX_SUFFIXES = ("_prob.tif", "_epistemic.tif", "_aleatoric.tif",
                  "_smoothed.tif", "_cc.tif", "_snow.tif")
@@ -121,17 +123,17 @@ def write_snow_raster(pred_fp, snow, profile, out_dir=None):
 
 
 def write_rasters_for_dir(pred_dir):
-    pred_fps = [
-        fp for fp in sorted(glob.glob(os.path.join(pred_dir, "*.tif")))
-        if not fp.endswith(_AUX_SUFFIXES)
-    ]
+    pred_fps = []
+    for fp in sorted(glob.glob(os.path.join(pred_dir, "*.tif"))):
+        if not fp.endswith(_AUX_SUFFIXES):
+            pred_fps.append(fp)
+
     for pred_fp in tqdm(pred_fps, desc="Writing bubble rasters"):
         write_rasters_for_pred(pred_fp)
 
 
 if __name__ == "__main__":
-    import sys
     from config import configSwinUnet
     config = configSwinUnet.Configuration().validate()
-    ckpt_pred_dir = os.path.join(config.results_dir, "20260428-1537_SWINxAE.weights")
-    write_rasters_for_dir(ckpt_pred_dir)
+    write_rasters_for_dir(
+        os.path.join(config.results_dir, CANONICAL_PRED_SUBDIR))
