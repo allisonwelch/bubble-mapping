@@ -32,12 +32,9 @@ import sys
 import geopandas as gpd
 
 # Reuse the allocation script's strata logic so bin cuts match the real packs.
-REPO_PATH = os.path.expanduser("~/git_repos/bubble-mapping")
 from tools.labeling.strata import assign_strata
 
-PRED_DIR = os.path.join(
-    REPO_PATH, "data", "results", "SWIN", "AE", "20260428-1537_SWINxAE.weights"
-)
+from tools.paths import CANONICAL_PRED_DIR as PRED_DIR
 GT_PATH = os.path.join(PRED_DIR, "gt_bubbles.gpkg")
 OUT_DIR = os.path.join(PRED_DIR, "labeling")
 

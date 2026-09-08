@@ -54,12 +54,13 @@ from sklearn.model_selection import GroupKFold
 from tools.classify.fit_classifier import (
     CLASSES, FLUX_RATE, FLUX_SIGMA, LABELERS, assign_phys_id,
     dissolve_to_seeps, load_pack)
+from tools.paths import CANONICAL_PRED_SUBDIR
 from tools.classify.model_comparison import RICH, enrich
 
 warnings.filterwarnings("ignore")
 
 LAB_DIR = os.path.join("data", "results", "SWIN", "AE",
-                       "20260428-1537_SWINxAE.weights", "labeling")
+                       CANONICAL_PRED_SUBDIR, "labeling")
 DEFAULT_AUGMENT = os.path.join(
     LAB_DIR, "gt_seeps_label_all_chips_grouped.pre_hulls_20260729-130809.gpkg")
 SEED = 42

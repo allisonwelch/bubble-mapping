@@ -113,10 +113,11 @@ def score(name, clf, X, y, groups, cv, sw=None) -> dict:
             "_pred": pred}
 
 
+from tools.paths import CANONICAL_PRED_SUBDIR
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--labeling-dir", default=os.path.join(
-        "data", "results", "SWIN", "AE", "20260428-1537_SWINxAE.weights",
+        "data", "results", "SWIN", "AE", CANONICAL_PRED_SUBDIR,
         "labeling"))
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()

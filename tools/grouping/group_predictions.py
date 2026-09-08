@@ -30,8 +30,9 @@ from tools.grouping.deploy_grouper import (
     train_model, _pair_features, constrained_cluster, build_qml, inject_style)
 from tools.grouping.train_grouper import FEATURES, AGGLOM_CAP_M
 from tools.eval.bubble_features import polygonize_labels
+from tools.paths import CANONICAL_PRED_RELDIR
 
-PD = "data/results/SWIN/AE/20260428-1537_SWINxAE.weights"
+PD = CANONICAL_PRED_RELDIR
 PRED_BUBBLES = PD + "/bubble_features.csv"
 OUT_GPKG = PD + "/pred_bubbles_grouped.gpkg"
 THR = 0.6

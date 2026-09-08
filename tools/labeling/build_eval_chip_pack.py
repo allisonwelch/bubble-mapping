@@ -49,7 +49,10 @@ import pandas as pd
 import geopandas as gpd
 from tools.eval.bubble_features import build_gt_bubbles_from_source
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Repo root: this file is tools/labeling/, so three levels up. The two
+# dirname() version this replaced landed on tools/, making every default
+# built from REPO point at a nonexistent tools/data/... path.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Exact column order of gt_seeps_label_quarters_*_grouped.gpkg.
 PACK_COLS = [
@@ -85,11 +88,11 @@ def assign_strata(gt: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     return gt
 
 
+from tools.paths import CANONICAL_PRED_DIR
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--chip-dir", default=os.path.join(
-        REPO, "data", "results", "SWIN", "AE", "20260428-1537_SWINxAE.weights",
-        "labeling", "chips"),
+        CANONICAL_PRED_DIR, "labeling", "chips"),
         help="dir of chip .tif files (default = the 9 evaluation chips)")
     ap.add_argument("--labels", default=os.path.join(
         REPO, "data", "training", "AE", "2026-04-16_UNETxAE",
@@ -106,8 +109,7 @@ def main() -> None:
     ap.add_argument("--labeler", default="eval_chunt",
                     help="value for the `labeler` column")
     ap.add_argument("-o", "--out", default=os.path.join(
-        REPO, "data", "results", "SWIN", "AE", "20260428-1537_SWINxAE.weights",
-        "labeling", "gt_seeps_label_eval_chips.gpkg"))
+        CANONICAL_PRED_DIR, "labeling", "gt_seeps_label_eval_chips.gpkg"))
     args = ap.parse_args()
 
     if args.split == "dir":

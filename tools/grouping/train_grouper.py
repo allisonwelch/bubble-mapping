@@ -63,7 +63,10 @@ import warnings
 from sklearn.exceptions import UndefinedMetricWarning
 
 
-LAB = "data/results/SWIN/AE/20260428-1537_SWINxAE.weights/labeling/"
+from tools.paths import CANONICAL_PRED_RELDIR
+
+
+LAB = os.path.join(CANONICAL_PRED_RELDIR, "labeling") + os.sep
 # The grouper's training inputs were archived into backup_pre_classified_20260624/
 # on 2026-06-24, and katey_kwa was later renamed to katey_grouped. Resolve each
 # against its known aliases so the tool keeps working wherever they now live --

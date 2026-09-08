@@ -35,9 +35,7 @@ import pandas as pd
 
 warnings.simplefilter("ignore")
 
-REPO_PATH = os.path.expanduser("~/git_repos/bubble-mapping")
-PRED_DIR = os.path.join(REPO_PATH, "data", "results", "SWIN", "AE",
-                        "20260428-1537_SWINxAE.weights")
+from tools.paths import REPO_PATH, CANONICAL_PRED_DIR as PRED_DIR
 HIST_DIR = os.path.join(PRED_DIR, "labeling", "historical")
 OUT_JSON = os.path.join(PRED_DIR, "labeling", "historical_size_priors.json")
 

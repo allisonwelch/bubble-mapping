@@ -37,6 +37,7 @@ import rasterio
 from skimage.measure import label, regionprops
 from tqdm import tqdm
 
+from tools.paths import CANONICAL_PRED_SUBDIR
 from tools.eval.write_bubble_rasters import (
     smooth_pred,
     snow_mask_hsv,
@@ -97,7 +98,7 @@ def load_pair(pred_tif, chip_tif,
     `n_dropped` is the number of CCs zeroed by the filter (0 if disabled).
     """
     with rasterio.open(pred_tif) as src:
-        pred = smooth_pred(src.read(1))
+        pred = smooth_pred(src.read(1))  # second entry point (redoing smoothing from write_bubble_rasters.py if already done
         transform = src.transform        # for physical sizes
         pred_profile = src.profile.copy()
     with rasterio.open(chip_tif) as src:
@@ -358,7 +359,7 @@ def main(pred_dir, chip_dir,
 if __name__ == "__main__":
     from config import configSwinUnet
     config = configSwinUnet.Configuration().validate()
-    ckpt_pred_dir = os.path.join(config.results_dir, "20260428-1537_SWINxAE.weights")
+    ckpt_pred_dir = os.path.join(config.results_dir, CANONICAL_PRED_SUBDIR)
     sub = getattr(config, "bubble_eval_out_subdir", None)
     main(
         pred_dir=ckpt_pred_dir,
