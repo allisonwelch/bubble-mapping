@@ -13,6 +13,17 @@ Pipeline position:
     seep   -- not evaluated yet   needs the RF grouper; see
                                   tools/archive/polygon_matcher.py
 
+WHAT "GT BUBBLE" MEANS HERE (read before quoting n_gt)
+Both sides are connected components: the GT comes from the chip's rasterized
+label band, CC-labelled with 8-connectivity, NOT from the drawn polygons. Two
+drawn bubbles that touch therefore count as ONE ground-truth bubble. That is
+the right unit for a detection metric -- the detector emits pixels, so it can
+only ever produce one component where two bubbles touch, and scoring against
+de-merged polygons would impose a ceiling it cannot reach by construction --
+but it means n_gt is a component count, not a count of drawn bubbles (2,610 vs
+3,105 on the 9 test chips). Use tools/eval/gt_bubbles_export.py when you want
+the drawn-polygon denominator.
+
 Outputs (to out_dir, default pred_dir):
     bubble_level_summary.csv    one wide row: P/R/F1 + matched-pair feature r
     bubble_level_per_image.csv  per-chip counts and r

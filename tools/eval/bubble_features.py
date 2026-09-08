@@ -100,7 +100,14 @@ def compute_bubble_features(cc_lab, image, transform):
 
 def polygonize_labels(label_array, transform, crs):
     """Polygonize a uint label array (0=background). Same-label pieces are
-    dissolved into a single (Multi)Polygon per id."""
+    dissolved into a single (Multi)Polygon per id.
+
+    This is the PREDICTED side's route to geometry: the detector emits pixels,
+    so a predicted bubble only exists as a connected component. Live caller is
+    tools/grouping/group_predictions.py, which polygonizes {stem}_cc.tif to
+    feed the pairwise grouper. Do NOT use it on the ground-truth label band --
+    GT polygons come from the original drawn shapes via
+    build_gt_bubbles_from_source (see its docstring for why)."""
     if not _HAS_GPD:
         raise RuntimeError("geopandas is required for polygonization")
     arr = label_array.astype(np.int32)
@@ -119,27 +126,23 @@ def polygonize_labels(label_array, transform, crs):
     return gdf
 
 
-def labels_to_bubble_gdf(label_array, image, transform, crs, id_name="bubble_id"):
-    """End-to-end: labels → polygons + features → GeoDataFrame (one row per
-    label, with shapely geometry, area/perim/circ/solidity/ecc, mean_R/G/B).
-    Use for both GT polygons (label = polygon CC) and pred cluster rasters."""
-    if not _HAS_GPD:
-        raise RuntimeError("geopandas is required for labels_to_bubble_gdf")
-    features = compute_bubble_features(label_array, image, transform)
-    features = features.rename(columns={"bubble_id": id_name})
-    gdf = polygonize_labels(label_array, transform, crs)
-    gdf = gdf.rename(columns={"id": id_name})
-    return gdf.merge(features, on=id_name, how="left")
-
-
 def build_gt_bubbles_from_source(chip_fp, source_polygons_gdf,
                                id_name="bubble_id"):
     """Build a per-chip GT-BUBBLE GeoDataFrame from the ORIGINAL drawn polygons.
 
-    Use this instead of running labels_to_bubble_gdf on the rasterized GT mask:
-    the rasterize -> CC -> repolygonize round-trip merges any two original
-    polygons that touch (or sit within 1 px diagonally with 8-connectivity)
-    into a single output polygon, which destroys per-bubble class labels.
+    The drawn polygons live in one lake-wide GeoPackage
+    ({training_data_dir}/{training_polygon_fn}); this scopes them to a chip,
+    clips them to its footprint (the prediction side is truncated there too),
+    and attaches the pixel-derived features only the imagery can supply. The
+    geometry IS the original drawn shape -- nothing is reconstructed.
+
+    Never recover GT polygons by polygonizing the chip's rasterized label band
+    instead: that rasterize -> CC -> repolygonize round-trip merges any two
+    original polygons that touch (or sit within 1 px diagonally under
+    8-connectivity) into a single output polygon, which destroys per-bubble
+    class labels. On the 9 test chips it merged 19% of the GT (2,610 polygons
+    recovered vs 3,105 drawn, concentrated in the dense chips 39 and 4) and
+    inflated area_m2 / distorted solidity on every merged row.
 
     For each source polygon intersecting the chip footprint:
       - geometry: original polygon, clipped to chip extent
@@ -149,10 +152,17 @@ def build_gt_bubbles_from_source(chip_fp, source_polygons_gdf,
         per-polygon label (so adjacent polygons never merge into one CC)
         and read regionprops + image pixels off that label raster
 
-    Returns a GeoDataFrame with the same column schema as labels_to_bubble_gdf
-    (id_name, centroid_x_m, centroid_y_m, area_m2, perim_m, circularity,
-    solidity, eccentricity, mean_R, mean_G, mean_B, geometry). Returns None
-    when the chip has no CRS or no polygons intersect it.
+    Returns a GeoDataFrame carrying the same feature columns as
+    compute_bubble_features, plus geometry (id_name, centroid_x_m,
+    centroid_y_m, area_m2, perim_m, circularity, solidity, eccentricity,
+    mean_R, mean_G, mean_B, geometry), so GT and predicted bubbles are
+    described in the same terms. Returns None when the chip has no CRS or no
+    polygons intersect it.
+
+    Callers: tools/eval/gt_bubbles_export.py (the single producer of
+    gt_bubbles.gpkg) and the labeling-pack builders in tools/labeling/. NOT
+    used by tools/eval/bubble_level_eval.py -- the canonical bubble F1 matches
+    connected components on both sides; see that module's docstring.
     """
     if not _HAS_GPD:
         raise RuntimeError("geopandas is required")
