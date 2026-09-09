@@ -24,8 +24,19 @@ but it means n_gt is a component count, not a count of drawn bubbles (2,610 vs
 3,105 on the 9 test chips). Use tools/eval/gt_bubbles_export.py when you want
 the drawn-polygon denominator.
 
+TWO DOMAINS ARE REPORTED, AND BOTH MUST BE QUOTED WITH THE DOMAIN NAMED
+The headline P/R/F1 covers every evaluation chip. Some of those chips are
+shoreline and contain no seeps, so every detection on them is a false positive
+by construction, while deployment crops inference to the lake polygon and never
+sees them. `lake_ice_domain_metrics` therefore also reports the metric over
+chips with n_gt > 0 (the *_lake_ice columns). Recall is identical between the
+two by construction; only precision moves. That difference is a DOMAIN
+DEFINITION, not a model improvement, and reporting it as one repeats exactly
+the error that got `cluster_f1` retired.
+
 Outputs (to out_dir, default pred_dir):
     bubble_level_summary.csv    one wide row: P/R/F1 + matched-pair feature r
+                                + the *_lake_ice domain-restricted columns
     bubble_level_per_image.csv  per-chip counts and r
     bubble_level_pairs.csv      one row per matched (pred CC, GT CC) pair
     bubble_features.csv
@@ -216,6 +227,48 @@ def paired_feature_correlation(matches, pred_feats, gt_feats):
     return out
 
 
+def lake_ice_domain_metrics(df):
+    """The same metric restricted to chips that contain ground truth.
+
+    WHAT THIS IS, AND WHAT IT IS NOT
+    Some evaluation chips are shoreline: they hold no seeps at all, so every
+    detection on them is a false positive by construction and no detection on
+    them could ever be a true positive. Deployment crops inference to the lake
+    polygon, which means those chips are outside the domain the model is
+    actually run on. Scoring them is scoring the model somewhere it will never
+    be asked to work.
+
+    This is therefore a statement about WHERE the model is run, NOT a model
+    improvement, and it must never be reported as one -- the same discipline
+    the retired `cluster_f1` 0.672-vs-0.640 comparison failed. Report it beside
+    the all-imagery number with the domain named, never instead of it.
+
+    The rule is "n_gt == 0", not a hard-coded chip list, so it generalises to
+    any evaluation set and cannot silently drop a chip that has seeps on it.
+    Because every excluded chip has no ground truth, the ground-truth
+    denominator is unchanged and RECALL IS IDENTICAL BY CONSTRUCTION; only
+    precision moves. The caller asserts that, so a violation is a bug rather
+    than a quietly flattering number.
+
+    Returns (metrics_dict, excluded_dataframe).
+    """
+    excluded = df[df["n_gt"] == 0]
+    kept = df[df["n_gt"] > 0]
+    tp, fn, fp = kept["tp"].sum(), kept["fn"].sum(), kept["fp"].sum()
+    recall = tp / max(1, tp + fn)
+    precision = tp / max(1, tp + fp)
+    return ({
+        "n_images_lake_ice": int(len(kept)),
+        "tp_lake_ice": int(tp), "fn_lake_ice": int(fn), "fp_lake_ice": int(fp),
+        "precision_lake_ice": precision,
+        "recall_lake_ice": recall,
+        "f1_lake_ice": 2 * precision * recall / max(1e-6, precision + recall),
+        "n_images_excluded_zero_gt": int(len(excluded)),
+        "fp_excluded_zero_gt": int(excluded["fp"].sum()),
+        "images_excluded_zero_gt": ";".join(sorted(excluded["image"])),
+    }, excluded)
+
+
 def main(pred_dir, chip_dir,
          snow_mask_enabled=False,
          snow_v_thresh=0.85,
@@ -340,6 +393,26 @@ def main(pred_dir, chip_dir,
           f"area={global_r['area_m2']:.3f} perim={global_r['perim_m']:.3f} "
           f"circ={global_r['circularity']:.3f}")
 
+    lake, excluded = lake_ice_domain_metrics(df)
+    if len(excluded):
+        # Guaranteed by n_gt == 0, but assert it: if recall ever moves here the
+        # exclusion rule has started dropping chips that contain seeps, which
+        # would turn a domain restriction into an inflated headline.
+        assert abs(lake["recall_lake_ice"] - recall) < 1e-9, (
+            "excluding zero-GT chips changed recall -- the exclusion rule is wrong")
+        print(f"\n  LAKE-ICE DOMAIN ({lake['n_images_lake_ice']} chips with GT; "
+              f"excludes {lake['n_images_excluded_zero_gt']} shoreline chip(s) "
+              f"[{lake['images_excluded_zero_gt']}] holding "
+              f"{lake['fp_excluded_zero_gt']} FP, "
+              f"{100.0 * lake['fp_excluded_zero_gt'] / max(1, fp):.0f}% of all FP):")
+        print(f"    precision={lake['precision_lake_ice']:.3f} "
+              f"recall={lake['recall_lake_ice']:.3f} "
+              f"F1={lake['f1_lake_ice']:.3f}")
+        print("    Recall is unchanged by construction. This is a DOMAIN "
+              "restriction (deployment crops to the lake polygon),")
+        print("    NOT a model improvement -- report it beside the "
+              "all-imagery number, never instead of it.")
+
     df.to_csv(os.path.join(out_dir, "bubble_level_per_image.csv"), index=False)
     pairs_df.to_csv(os.path.join(out_dir, "bubble_level_pairs.csv"), index=False)
     pd.DataFrame([{
@@ -359,6 +432,7 @@ def main(pred_dir, chip_dir,
         "r_area_m2": global_r["area_m2"],
         "r_perim_m": global_r["perim_m"],
         "r_circularity": global_r["circularity"],
+        **lake,
     }]).to_csv(os.path.join(out_dir, "bubble_level_summary.csv"), index=False)
 
     if bubble_dfs:
