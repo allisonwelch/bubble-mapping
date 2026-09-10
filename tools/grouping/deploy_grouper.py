@@ -396,8 +396,8 @@ def main():
     # 1,2,... so counting it globally silently merges distinct seeps that happen
     # to share an id across chips. Always key on the (image, seep_group_id)
     # tuple. (Grouping itself was never affected: candidate pairs are built
-    # within-image only. This was a reporting bug -- on the 10-chip validation
-    # pack it under-reported 2711 seeps as 1305.)
+    # within-image only. This was a reporting bug that roughly halved the seep
+    # count on a multi-chip pack.)
     sizes = df.assign(_g=sgid).groupby(["image", "_g"]).size()
     n_groups = len(sizes)
     n_multi = int((sizes > 1).sum())

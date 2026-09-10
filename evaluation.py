@@ -1232,7 +1232,7 @@ def _evaluate_arch(config, arch: str = "unet") -> None:
 
     # ===== Device setup =====
     # Use specified GPU, or fall back to CPU if not available
-    selected_gpu = getattr(config, "selected_gpu", 0)
+    selected_gpu = getattr(config, "selected_GPU", 0)
     if selected_gpu == -1 or not torch.cuda.is_available():
         device = torch.device("cpu")
     else:

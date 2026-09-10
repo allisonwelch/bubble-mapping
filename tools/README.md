@@ -50,7 +50,7 @@ A file or column named `seep_*` that runs before `grouping/` is a naming bug.
         classify/fit_classifier.py      per-seep A/B/C
                               │
                               ▼
-                        count-based flux
+        flux/rates.py                   count-based flux + uncertainty
 ```
 
 ---
@@ -97,9 +97,48 @@ grouping (`seep_group_id`) and fill the class (`A`/`B`/`C`).
 
 | Script | Does |
 |---|---|
-| `fit_classifier.py` | Fits and validates the A/B/C classifier on the three labeler packs; reports inter-labeler κ. Holds `FLUX_RATE` / `FLUX_SIGMA`. |
+| `fit_classifier.py` | Fits and validates the A/B/C classifier on the three labeler packs; reports inter-labeler κ. Flux rates now live in `tools/flux/rates.py`. |
 | `model_comparison.py` | Features × model families × training objective. |
 | `c_augment_eval.py` | Does adding hand-hunted C seeps help? C is the rare class that dominates the flux budget. |
+
+## `flux/` — class → methane
+
+| Script | Does |
+|---|---|
+| `rates.py` | **The single owner of the per-class flux rates** (annual / summer / winter, Walter Anthony et al. 2010). `lake_total` turns per-class seep counts into mg CH₄/day; `flux_table` / `write_flux_table` emit the per-season summary spreadsheet. Nothing else in the repo should define a rate. |
+
+Two things to know before quoting a number from here. The ± figures are
+**standard errors on each class mean**, so they are shared by every seep of a
+class and do not average down — that is why the rate term is a floor rather
+than something more mapping can shrink. And `lake_total` takes an optional
+`rng`, which draws each class rate from a moment-matched lognormal; that is the
+hook for the Monte Carlo error propagation, and it is the only part of the
+uncertainty story that covers detector / grouper / classifier error.
+
+## `deploy/` — orthomosaic → lake total
+
+The composed end-to-end runner. Everything above is a stage validated in
+isolation; this is the only thing that chains them.
+
+| Script | Does |
+|---|---|
+| `tiles.py` | Grids a whole-lake ortho into **15 m tiles inside the lake polygon**. Not a chunking convenience: the tile is the z-score window, and every canonical number in this repo was produced with that window at chip size. `tile_m` changes the detections. |
+| `detect.py` | **Stage A, needs a GPU.** Runs `evaluation.py::_infer_full_image` per tile, masks to the lake polygon and the ortho's alpha band, smooths, labels connected components, and writes `bubbles.gpkg` + `run_info.json`. Refuses to run a checkpoint whose keys don't match the config, rather than loading it partially the way `evaluation.py` would. |
+| `postproc.py` | **Stage B, CPU only.** `bubbles.gpkg` → grouper → dissolve + hull → classifier → count-based flux. `--from-pred-dir` runs it against an existing prediction directory instead, which is how the chain gets exercised without a lake-scale run. |
+| `runinfo.py` | Reads/writes the run metadata **inside** each output GeoPackage, as a registered `attributes` table. QGIS lists it, GDAL ignores it when reading the spatial layer. |
+| — | **The entry point is `deploy.py` at the repo root**, not a module here. `deploy_lake.slurm` submits it. Each stage module keeps its own `main()` so it can be run alone when needed. |
+
+The stage boundary is `bubbles.gpkg` on purpose: stage A needs torch, stage B
+needs the geo + sklearn stack, so the slow half runs on HPC and the half you
+actually read runs anywhere.
+
+**`surveyed_area_m2` travels with every total**, and it travels *inside* the
+GeoPackage rather than in a sidecar, so copying `seeps.gpkg` somewhere can't
+separate the count from the area it was counted over. It is measured, never
+configured: valid pixels (alpha band ∩ lake polygon) accumulated per tile core,
+including tiles where nothing was detected. A count-based flux figure without
+that denominator is not comparable to a field campaign, to another lake, or to
+itself on another date.
 
 ## Other
 

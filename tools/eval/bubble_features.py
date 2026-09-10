@@ -20,7 +20,7 @@ REMOVED 2026-09-03: the anchor-conditional + "lonely" clustering rule
 build_pred_seeps_gdf / process_dir) and its outputs
 (seep_features_per_cluster.csv, pred_seeps.gpkg, *_seep_cluster.tif). It was a
 hand-tuned placeholder superseded by the learned random-forest grouper, and it
-is the reason the retired cluster_f1=0.672 was circular -- the same rule was
+is the reason the retired cluster_f1 was circular -- the same rule was
 applied to BOTH the ground-truth and predicted sides, so grouping error
 cancelled out and the metric measured detection only. Recoverable at tag
 `pre-cleanup`.
@@ -140,9 +140,9 @@ def build_gt_bubbles_from_source(chip_fp, source_polygons_gdf,
     instead: that rasterize -> CC -> repolygonize round-trip merges any two
     original polygons that touch (or sit within 1 px diagonally under
     8-connectivity) into a single output polygon, which destroys per-bubble
-    class labels. On the 9 test chips it merged 19% of the GT (2,610 polygons
-    recovered vs 3,105 drawn, concentrated in the dense chips 39 and 4) and
-    inflated area_m2 / distorted solidity on every merged row.
+    class labels. On the test chips it merged a substantial fraction of the GT,
+    concentrated in the dense chips 39 and 4, and inflated area_m2 / distorted
+    solidity on every merged row.
 
     For each source polygon intersecting the chip footprint:
       - geometry: original polygon, clipped to chip extent

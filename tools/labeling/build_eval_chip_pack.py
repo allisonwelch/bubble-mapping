@@ -1,11 +1,10 @@
 """Build a labeling pack for every GT label polygon on the EVALUATION chips.
 
-Motivation (2026-07-29): with the real per-seep flux rates in hand
-(A=16, B=131, C=971 mg CH4/day), the C class turns out to be ~4% of seeps but
-~52% of total flux, and the classifier's weak cross-chip C recall is the
-dominant error term. The fix is more C examples -- so this pack exists to be
-C-HUNTED, not labeled uniformly. Open it, find the big bright seeps, group and
-class those first.
+Motivation (2026-07-29): with the published per-seep flux rates in hand, C
+turns out to be the rarest class but the largest share of total flux, and the
+classifier's weak cross-chip C recall is the dominant error term. The fix is
+more C examples -- so this pack exists to be C-HUNTED, not labeled uniformly.
+Open it, find the big bright seeps, group and class those first.
 
 WHICH CHIPS: the 9 chips in `labeling/chips` (21 25 27 33 38 39 4 41 52) -- the
 set the SWIN model was EVALUATED on. Take the chip list from that directory, not

@@ -1,9 +1,7 @@
 # tools/paths.py
 """Single source of truth for the canonical prediction directory.
 
-The canonical checkpoint is `20260428-1537_SWINxAE.weights` -- the run whose
-bubble F1 = 0.644882 is the repo's canonical detection metric (CLAUDE.md
-2026-09-03). Its outputs (rasters, feature CSVs, GeoPackages, and the
+The canonical checkpoint is `20260428-1537_SWINxAE.weights. Its outputs (rasters, feature CSVs, GeoPackages, and the
 `labeling/` packs) all live under one directory, and before this module the
 name was copy-pasted into 13 places across 12 modules.
 
@@ -29,6 +27,18 @@ CANONICAL_PRED_SUBDIR = "20260428-1537_SWINxAE.weights"
 # Repo-relative path, for tools run from the repo root.
 CANONICAL_PRED_RELDIR = os.path.join(
     "data", "results", "SWIN", "AE", CANONICAL_PRED_SUBDIR)
+
+# The checkpoint FILE those outputs came from. `evaluation.py` never needs it --
+# it globs `saved_models_dir` and evaluates whatever it finds -- but deploy.py
+# has to name one file, so it lives here with everything else that moves when
+# the checkpoint changes.
+#
+# This is `.weights.pt`, not the `.raw.weights.pt` CLAUDE.md recommends: no raw
+# file exists for this run, and `.weights.pt` is what produced
+# CANONICAL_PRED_SUBDIR. The raw-weights guidance applies to future runs.
+CANONICAL_CHECKPOINT_RELPATH = os.path.join(
+    "data", "models", "SWIN", "AE", "20260428-1537_SWINxAE_continued",
+    "20260428-1537_SWINxAE.weights.pt")
 
 # Absolute path, for tools that resolve against the user's checkout.
 REPO_PATH = os.path.expanduser("~/git_repos/bubble-mapping")

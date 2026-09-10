@@ -97,7 +97,9 @@ single evaluation run yields both pixel and bubble metrics.
  tools/classify/fit_classifier.py       per-seep A / B / C
        │
        ▼
- count-based flux = SUM over class (n_seeps * per-class rate)
+ tools/flux/rates.py                    count-based flux = SUM over class
+                                        (n_seeps * per-class rate), plus the
+                                        rate-uncertainty floor
 ```
 
 
@@ -148,7 +150,8 @@ column, so a returned pack can be diffed back into grouper training data.
 │  ├─ eval/                 # pixel -> BUBBLE detection metrics
 │  ├─ labeling/             # build + maintain QGIS labeler packs
 │  ├─ grouping/             # bubble -> SEEP (learned RF grouper)
-│  ├─ classify/             # per-seep A/B/C class + count-based flux
+│  ├─ classify/             # per-seep A/B/C class
+│  ├─ flux/                 # per-class rates -> lake total + uncertainty
 │  ├─ viz/                  # plotting notebooks
 │  └─ archive/              # superseded / rejected  (untracked, local only)
 │

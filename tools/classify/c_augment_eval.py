@@ -2,9 +2,9 @@
 
 Tests the 2026-07-29 top-priority labeling action ("have labelers hunt C seeps
 specifically") by scoring a C-only enrichment pack against the 3-labeler
-baseline. C is ~4% of seeps but ~52% of the methane, and cross-chip C recall was
-the weak point (LOIO C F1 0.475, recall 0.55), so C examples are the highest-
-value labels available.
+baseline. C is the rarest class but carries the largest share of the methane,
+and cross-chip C recall is the weak point, so C examples are the
+highest-value labels available.
 
 TWO SEPARATE QUESTIONS, TWO SEPARATE EXPERIMENTS
   1. PROBE -- how good is the CURRENT model at finding C on unseen chips?
@@ -52,8 +52,10 @@ from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import GroupKFold
 
 from tools.classify.fit_classifier import (
-    CLASSES, FLUX_RATE, FLUX_SIGMA, LABELERS, assign_phys_id,
+    CLASSES, LABELERS, assign_phys_id,
     dissolve_to_seeps, load_pack)
+from tools.flux.rates import FLUX_RATE_ANNUAL as FLUX_RATE
+from tools.flux.rates import lake_total
 from tools.paths import CANONICAL_PRED_SUBDIR
 from tools.classify.model_comparison import RICH, enrich
 
@@ -61,8 +63,13 @@ warnings.filterwarnings("ignore")
 
 LAB_DIR = os.path.join("data", "results", "SWIN", "AE",
                        CANONICAL_PRED_SUBDIR, "labeling")
+# The 83 hunted-C polygons (81 seeps) on chips 0/3/19/20/43/45/48, extracted
+# 2026-09-09 from gt_seeps_label_all_chips_grouped.pre_hulls_20260729-130809.gpkg,
+# which was the only copy carrying them and read as a disposable snapshot.
+# Held as a C-recall validation probe -- NOT merged into the labeler packs, because
+# a C-only sample on chips with no A/B labels over-extends C into B.
 DEFAULT_AUGMENT = os.path.join(
-    LAB_DIR, "gt_seeps_label_all_chips_grouped.pre_hulls_20260729-130809.gpkg")
+    LAB_DIR, "gt_seeps_label_hunted_C_20260729.gpkg")
 SEED = 42
 
 
@@ -181,7 +188,8 @@ def oof(folds, Xo, yo, Xa=None, ya=None):
 
 
 def flux(y) -> float:
-    return float(sum(FLUX_RATE[c] * (y == c).sum() for c in CLASSES))
+    """Count-based annual flux for an array of class labels."""
+    return lake_total({c: int((y == c).sum()) for c in CLASSES})[0]
 
 
 def report(name, y, pred) -> dict:
@@ -190,11 +198,11 @@ def report(name, y, pred) -> dict:
                                 zero_division=0)
     ft, fp = flux(y), flux(pred)
     err = 100 * (fp - ft) / ft
-    rate_unc = 100 * np.sqrt(sum((FLUX_SIGMA[c] * (y == c).sum()) ** 2
-                                for c in CLASSES)) / ft
+    _, ft_std_err = lake_total({c: int((y == c).sum()) for c in CLASSES})
+    rate_unc = 100 * ft_std_err / ft
     n_ct, n_cp = int((y == "C").sum()), int((pred == "C").sum())
-    # C carries ~52% of the flux on ~4% of seeps, so its own contribution to the
-    # error is reported separately -- it dominates the total.
+    # C is the rarest class but carries the largest share of the flux, so its
+    # own contribution to the error is reported separately.
     c_term = 100 * FLUX_RATE["C"] * (n_cp - n_ct) / ft
     print(f"\n--- {name} ---")
     print(f"  accuracy={acc:.3f}  macro-F1={rep['macro avg']['f1-score']:.3f}")
@@ -264,9 +272,9 @@ def main() -> None:
     # (image, bubble_id), and those links can run THROUGH a row that the
     # context/overgrouped filter drops: if excluded seep X shares members with
     # both Y and Z, only the unfiltered pass puts Y and Z in one group. Filtering
-    # first silently splits such groups and weakens the leakage guard -- measured
-    # cost on this data: grouped-CV macro-F1 reads 0.730 instead of 0.765 and
-    # flux +14.3% instead of +9.2%, purely from the changed fold assignment.
+    # first silently splits such groups and weakens the leakage guard. Measured
+    # on this data, getting the order backwards moves grouped-CV macro-F1 and the
+    # flux error materially, purely from the changed fold assignment.
     # (LOIO is immune -- its folds are the chips, not phys_id.)
     pooled = pd.concat([base, aug], ignore_index=True)
     pooled["phys_id"] = assign_phys_id(pooled)
@@ -461,8 +469,8 @@ def main() -> None:
         big = (flip["hull_area_m2"] > db.loc[yo == "C", "hull_area_m2"].median()).mean()
         print(f"  flipped B larger than the median original C: {big:.1%}")
         print("  -> the larger this is, the more likely these are TRUTH errors "
-              "(really C)\n     rather than model errors, and the more the "
-              "baseline -17.3% is an artifact.")
+              "(really C)\n     rather than model errors, and the more of the "
+              "baseline flux error is an artifact.")
         out = os.path.join(args.labeling_dir, "review_B_to_C_flips.csv")
         flip[["labeler", "image", "seep_group_id", "class", "n_bubbles",
               "hull_area_m2", "major_axis_m", "minor_axis_m", "mean_R",

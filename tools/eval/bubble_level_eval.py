@@ -20,8 +20,8 @@ drawn bubbles that touch therefore count as ONE ground-truth bubble. That is
 the right unit for a detection metric -- the detector emits pixels, so it can
 only ever produce one component where two bubbles touch, and scoring against
 de-merged polygons would impose a ceiling it cannot reach by construction --
-but it means n_gt is a component count, not a count of drawn bubbles (2,610 vs
-3,105 on the 9 test chips). Use tools/eval/gt_bubbles_export.py when you want
+but it means n_gt is a component count, not a count of drawn bubbles, and the
+two differ on the test chips. Use tools/eval/gt_bubbles_export.py when you want
 the drawn-polygon denominator.
 
 TWO DOMAINS ARE REPORTED, AND BOTH MUST BE QUOTED WITH THE DOMAIN NAMED
@@ -42,12 +42,13 @@ Outputs (to out_dir, default pred_dir):
     bubble_features.csv
     {stem}_smoothed.tif, {stem}_cc.tif, optional {stem}_snow.tif
 
-REMOVED 2026-09-03 -- the cluster-level half. `cluster_f1 = 0.672` was produced
-by grouping the GT and predicted sides with the SAME hand-tuned anchor+lonely
+REMOVED 2026-09-03 -- the cluster-level half. The retired `cluster_f1` was
+produced by grouping the GT and predicted sides with the SAME hand-tuned anchor+lonely
 rule, so grouping error cancelled on both sides and the number was a detection
 metric wearing a seep-level label. The rule is gone; the matcher is preserved
 at tools/archive/polygon_matcher.py together with the recipe for an honest
-RF-grouper version. Canonical detection metric is now bubble F1 = 0.645.
+RF-grouper version. The canonical detection metric is now bubble-level F1;
+current values live in CLAUDE.md's READ FIRST block.
 
 Ground-truth bubble POLYGONS are no longer written here -- that is
 tools/eval/gt_bubbles_export.py's job, so there is exactly one producer of that file.
@@ -240,7 +241,7 @@ def lake_ice_domain_metrics(df):
 
     This is therefore a statement about WHERE the model is run, NOT a model
     improvement, and it must never be reported as one -- the same discipline
-    the retired `cluster_f1` 0.672-vs-0.640 comparison failed. Report it beside
+    the retired `cluster_f1` comparison failed. Report it beside
     the all-imagery number with the domain named, never instead of it.
 
     The rule is "n_gt == 0", not a hard-coded chip list, so it generalises to

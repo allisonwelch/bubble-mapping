@@ -35,7 +35,9 @@ import pandas as pd
 
 
 from tools.classify.fit_classifier import (
-    CLASSES, FLUX_RATE, LABELERS, assign_phys_id, dissolve_to_seeps, load_pack)
+    CLASSES, LABELERS, assign_phys_id, dissolve_to_seeps, load_pack)
+from tools.flux.rates import FLUX_RATE_ANNUAL as FLUX_RATE
+from tools.flux.rates import lake_total
 
 import geopandas as gpd
 from shapely.ops import unary_union
@@ -102,8 +104,8 @@ def score(name, clf, X, y, groups, cv, sw=None) -> dict:
     pred = cross_val_predict(clf, X, y, groups=groups, cv=cv, params=fp)
     rep = classification_report(y, pred, labels=CLASSES, output_dict=True,
                                 zero_division=0)
-    ft = sum(FLUX_RATE[c] * (y == c).sum() for c in CLASSES)
-    fpx = sum(FLUX_RATE[c] * (pred == c).sum() for c in CLASSES)
+    ft, _ = lake_total({c: int((y == c).sum()) for c in CLASSES})
+    fpx, _ = lake_total({c: int((pred == c).sum()) for c in CLASSES})
     return {"model": name, "acc": (pred == y).mean(),
             "macroF1": rep["macro avg"]["f1-score"],
             "A_f1": rep["A"]["f1-score"],

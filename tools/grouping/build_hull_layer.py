@@ -13,9 +13,8 @@ WHY THIS EXISTS
   serve it. Cost per repaint is therefore
       (groups on screen) x (features in the WHOLE layer),
   independent of the map extent (zooming in does not shrink the scan). That is
-  fine on a 1-4 chip quarter pack (~1-3k features) and unusable on the 48-chip
-  all_chips pack (18,762 features / 11,888 groups -> millions of geometry fetches
-  per pan).
+  fine on a small quarter pack and unusable on the full all-chips pack, where it
+  becomes millions of geometry fetches per pan.
 
   This tool dissolves the groups ONCE and writes the hulls as real polygons.
   Rendering then costs a spatial-index lookup like any normal vector layer.
@@ -165,7 +164,7 @@ def build_hulls(pack):
     # gas vs interstitial ice; computed from the GROUPING, not drawn vertices.
     # bubble_area_m2 SUMS the member polygons, so where two drawn bubbles overlap
     # the shared area is double-counted and fill_ratio can land just above 1.0
-    # (4 of 11,888 groups on the all-chips pack, all n_bubbles==2, max 1.18).
+    # (a handful of two-bubble groups on the all-chips pack).
     # That is a property of the drawn labels, not of the hull -- left as-is so it
     # matches the classifier's fill_ratio definition rather than silently clipping.
     with np.errstate(invalid="ignore", divide="ignore"):

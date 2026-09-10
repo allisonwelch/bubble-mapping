@@ -7,7 +7,7 @@ polygons, but here it is applied to the detector's connected-component bubbles
 fragmentation, missed/false bubbles, feature shift, and -- critically -- have NO
 envelope (is_pregrouped) concept. The grouping LOGIC is a learned distance-join
 (dist dominates), which transfers reasonably; the INPUT bubble set is the
-F1~0.645 detector's, so garbage-in applies.
+detector's, so garbage-in applies.
 
 Outputs (to the pred_dir):
   * console: per-chip predicted-bubble count, predicted-seep count, multi-bubble

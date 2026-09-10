@@ -25,17 +25,17 @@ reuse (4.tif and 38.tif both starting seep_group_id at 1, 2, ...) can never
 merge bubbles across chips. See the module docstring of the companion plan.
 
 DATA SOURCES
-  * gt_seeps_label_chip39_classified.gpkg -- 39.tif, 406 bubbles / 143 groups
-    (the authority for 39.tif; per-bubble, NOT dissolved).
+  * gt_seeps_label_chip39_classified.gpkg -- the authority for 39.tif;
+    per-bubble, NOT dissolved.
   * gt_seeps_label_quarters_katey_kwa.gpkg -- 4/38/21/39.tif quarter labels.
     Its 39.tif rows are DROPPED (chip-39 file is the authority) to avoid a
     bubble_id / seep_group_id collision on that image.
-  * gt_seeps_label_chip39.gpkg -- full 1585-bubble 39.tif field (density only).
+  * gt_seeps_label_chip39.gpkg -- the full 39.tif bubble field (density only).
 
 ROW FILTERING (target/training)
   * processed only: ``class`` non-empty (ungrouped rows have blank class).
   * is_overgrouped == 1: EXCLUDED (a single polygon spanning >1 seep cannot be
-    split here; flagged for relabel). 1 row.
+    split here; flagged for relabel).
   * is_context == 1: kept in the per-image density field and as candidate-pair
     NEIGHBOURS, but truncated context groups are NOT scored as targets (their
     members live partly outside the quarter). Pairs with a context endpoint are
@@ -95,7 +95,7 @@ C39_FULL = _resolve(LAB + "gt_seeps_label_chip39.gpkg",
 CAND_RADIUS = 0.5        # candidate_radius_m (p95 major axis): max plausible gap
 AGGLOM_CAP_M = 1.0       # agglomeration_major_cap_m (p99): wider clusters bridge >1 seep
 
-FLUX_RATE = {"A": 1.0, "B": 8.0, "C": 25.0}   # B/A ~8x (Allison); C placeholder
+from tools.flux.rates import FLUX_RATE_ANNUAL as FLUX_RATE
 
 FEATURES = ["dist", "size_ratio", "max_area", "min_area",
             "bright_diff", "dens_025", "dens_050",
@@ -411,7 +411,8 @@ def main():
         print()
 
     # ----- flux-weighted re-score (oracle class) -----
-    print("=== flux-weighted re-score (oracle human class; rates A=1 B=8 C=25*) ===")
+    print("=== flux-weighted re-score (oracle human class; rates A={A:.0f} "
+          "B={B:.0f} C={C:.0f} mg CH4/day) ===".format(**FLUX_RATE))
     print(f"  {'config':>26} {'A':>4} {'B':>4} {'C':>4} {'flux':>8} {'err%':>7}")
 
     def class_counts_of(comp):
@@ -433,8 +434,8 @@ def main():
         f = flux(c)
         err = 100.0 * (f - f_truth) / f_truth if f_truth else float("nan")
         print(f"  {tag:>26} {c['A']:>4} {c['B']:>4} {c['C']:>4} {f:>8.0f} {err:>+6.1f}%")
-    print("  (* C rate placeholder; class is the oracle human label here -- this")
-    print("     isolates GROUPING error from classifier error.)")
+    print("  (class is the oracle human label here -- this isolates GROUPING")
+    print("   error from classifier error.)")
     print(f"\n(target N_seep={N_h}, bias 0, low omrg, A/B/C ~ {hc})")
 
 

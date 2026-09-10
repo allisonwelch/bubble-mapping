@@ -277,7 +277,7 @@ class Configuration:
         self.output_dtype = "bool"
 
         # ------ GPU / ENV ------
-        self.selected_GPU = 3
+        self.selected_GPU = 0
         gdal.UseExceptions()
         gdal.SetCacheMax(32000000000)
         gdal.SetConfigOption("CPL_LOG", "/dev/null")

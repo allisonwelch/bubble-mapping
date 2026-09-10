@@ -1,12 +1,22 @@
-# tools/eval/fp_filter_probe.py
+# tools/archive/fp_filter_probe.py
 """Can a post-hoc OBJECT-LEVEL filter reject false-positive bubble detections?
+
+ARCHIVED 2026-09-09 -- ANSWER: YES, BUT NOT WORTH IT.
+The filter works; it was rejected on cost/benefit (settled 2026-09-08). It buys
+about a third of the FPs back for a small F1 gain at a few points of recall, and
+that gain sits far inside the +/-14.2% floor on the flux rates themselves. FPs
+are small, so they classify as A at the lowest per-seep rate -- FP suppression is
+a map-quality lever, not a flux lever, and it would add one more stage to
+propagate error through. Shore FPs are removed geometrically instead (crop to the
+lake polygon at inference). Kept as the record of the experiment and of the
+percentile-vs-absolute finding below; do not re-propose without new reason.
 
 THE QUESTION
 The detector's false positives concentrate where seeps do not. On the canonical
-run the three shore chips (47/50/51) hold no ground truth at all yet emit 320
-FPs -- 22% of the total, at zero recall cost -- and the two snow chips (21/52)
-emit another 398 from 87 GT bubbles, while the densest chip (39) emits 151 from
-1,316. Shore is removable geometrically by cropping to the lake polygon. Snow on
+run the three shore chips (47/50/51) hold no ground truth at all yet emit a
+large share of all FPs at zero recall cost, and the two snow chips (21/52) emit
+many more from very few GT bubbles, while the densest chip (39) emits
+comparatively few. Shore is removable geometrically by cropping to the lake polygon. Snow on
 the ice is NOT: it speckles the surface rather than covering it, so there is no
 clean polygon to cut. This probe asks whether those detections can instead be
 rejected downstream, as a learned stage between connected-components and the
@@ -15,27 +25,24 @@ grouper -- the same post-hoc architecture the grouper and classifier already use
 WHY THIS IS NOT THE 2026-05-12 SNOW MASK AGAIN
 That experiment thresholded HSV on PIXELS, unsupervised, and failed because snow
 and bubble-rich ice are spectrally confusable. This is a SUPERVISED classifier on
-OBJECTS, and the signal it leans on is size, not colour: FP components are 2-19x
+OBJECTS, and the signal it leans on is size, not colour: FP components are much
 smaller than true bubbles in every chip, while their brightness percentile sits
-mid-pack (0.31-0.54), i.e. FPs are speckle, not bright blobs. Different mechanism,
+mid-pack, i.e. FPs are speckle, not bright blobs. Different mechanism,
 different failure modes.
 
 RESULT (2026-09-08, canonical run, LOIO by chip): ABSOLUTE FEATURES WIN
 The module was built expecting within-image percentile ranks to win, by analogy
 with the 2026-07-29 finding that absolute brightness is a per-chip exposure
-confound. The ablation refuted that, and the default is `abs` because of it:
-
-    features   pooled AUC   21.tif   52.tif   F1 @ keep-95% of TP
-    abs             0.775    0.945    0.850   0.7055
-    both            0.705    0.909    0.642   --
-    rel             0.678    0.827    0.517   0.6814   (= no better than none)
+confound. The ablation refuted that: `abs` beats `both`, which beats `rel`, on
+pooled AUC and on F1 at the keep-95%-of-TP operating point, and the default is
+`abs` because of it. Measured figures are in SECRET_CLAUDE.md.
 
 TWO REASONS THE BRIGHTNESS LESSON DOES NOT TRANSFER TO AREA.
   1. A percentile rank is taken against the population being filtered, so it
      silently encodes that chip's own FP rate -- the thing you do not know at
-     deploy time and which varies enormously (52.tif is 92% FP, so its true
-     bubbles sit in the top 8% of the area rank; 39.tif is 85% TP, so its true
-     bubbles span nearly the whole range). The same rank value means opposite
+     deploy time and which varies enormously (52.tif is overwhelmingly FP, so its
+     true bubbles sit at the top of the area rank; 39.tif is overwhelmingly TP,
+     so its true bubbles span nearly the whole range). The same rank value means opposite
      things on the two chips. For the seep classifier the reference population
      is fixed regardless of the label being predicted, so no such feedback
      exists.
@@ -44,24 +51,24 @@ TWO REASONS THE BRIGHTNESS LESSON DOES NOT TRANSFER TO AREA.
      relative to exposure. The confound argument is specific to radiometry.
 
 A single GLOBAL area threshold remains a trap for the reason that motivated the
-percentile idea -- true bubble size varies ~10x across chips (mean TP area
-0.0124 m2 on 41.tif vs 0.1203 on 52.tif) and a 0.006 m2 floor takes global
-bubble F1 from 0.645 to 0.527. The forest handles this by conditioning area on
+percentile idea -- true bubble size varies by roughly an order of magnitude
+across chips, and a single global small-area floor costs far more global bubble
+F1 than it gains. The forest handles this by conditioning area on
 shape and neighbourhood context rather than by rescaling it.
 
 ALSO TESTED AND REJECTED: an unsupervised per-chip Otsu cut on log10(area),
-motivated by the very high WITHIN-chip AUC of raw area (0.985 on 52.tif, 0.962
-on 27.tif). It is excellent exactly where the area distribution is bimodal --
-52.tif FPs 199 -> 19 with all 18 TPs kept -- and catastrophic where it is not,
-splitting the unimodal dense chips through the middle (39.tif loses 572 of 879
-TPs). Pooled F1 0.528, worse than doing nothing. Revisit only behind a
+motivated by the very high WITHIN-chip AUC of raw area. It is excellent exactly
+where the area distribution is bimodal -- on 52.tif it removes nearly all FPs
+with no TP loss -- and catastrophic where it is not, splitting the unimodal dense
+chips through the middle (39.tif loses most of its TPs). Pooled F1 comes out
+worse than doing nothing. Revisit only behind a
 bimodality test that decides per chip whether the cut applies.
 
 LABEL CAVEAT -- READ BEFORE TRUSTING A HIGH SCORE
 "FP" here means "matched no GT component", NOT "is not a bubble". Where the GT is
 incomplete, a real detection is labelled FP and the filter is being taught to
 reject real bubbles. That is safe on 47/50/51 (no seeps exist there) but a live
-risk on 21.tif, whose GT count swings 54 -> 40 between the full and certain
+risk on 21.tif, whose GT count changes between the full and certain
 chippings. The script writes --review-out for QGIS spot-checking: the FPs the
 filter is most confident are real, which is where mislabelled truth will sit.
 
@@ -75,10 +82,10 @@ they would inflate every score) and reported separately as a transfer check.
 Baselines are single features needing no fitting, so they are honest controls: if
 raw area alone matches the forest, use a threshold and skip the model.
 
-Usage:
-  python -m tools.eval.fp_filter_probe
-  python -m tools.eval.fp_filter_probe --features rel     # abs | rel | both
-  python -m tools.eval.fp_filter_probe --pred-dir PATH --scores-out s.csv
+Usage (still runnable, but nothing live imports it):
+  python -m tools.archive.fp_filter_probe
+  python -m tools.archive.fp_filter_probe --features rel  # abs | rel | both
+  python -m tools.archive.fp_filter_probe --pred-dir PATH --scores-out s.csv
 """
 from __future__ import annotations
 
@@ -302,9 +309,9 @@ def main():
     ap.add_argument("--pred-dir", default=default_dir)
     ap.add_argument("--features", default="abs", choices=["abs", "rel", "both"],
                     help="abs = raw shape/colour/context (default; measured "
-                         "best, pooled AUC 0.775). rel = within-image "
-                         "percentile ranks (0.678 -- worse; see the RESULT "
-                         "block in the module docstring for why). both = 0.705.")
+                         "best on pooled AUC). rel = within-image percentile "
+                         "ranks -- worse; see the RESULT block in the module "
+                         "docstring for why. both = in between.")
     ap.add_argument("--keep-tp", type=float, default=0.95,
                     help="TP fraction retained at the reported operating point")
     ap.add_argument("--scores-out", default=None,
