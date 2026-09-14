@@ -13,8 +13,10 @@ set -euo pipefail
 module purge
 module load slurm
 
+set +u
 eval "$(conda shell.bash hook)"
 conda activate venv-bubble
+set -u
 
 cd ~/bubble-mapping
 
