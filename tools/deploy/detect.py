@@ -155,7 +155,7 @@ def detect_lake(image_path, checkpoint, config, out_dir,
     model, device = load_detector(config, checkpoint)
     from evaluation import _infer_full_image
 
-    feat_rows, geom_rows = [], []
+    geom_rows = []
     surveyed_px = 0
     t0 = time.time()
     it = tqdm(tiles, desc="detect", disable=not progress)
@@ -204,10 +204,9 @@ def detect_lake(image_path, checkpoint, config, out_dir,
             polys = polys[polys["bubble_id"].isin(f["bubble_id"])]
 
             f = f.assign(tile_id=t["tile_id"])
-            feat_rows.append(f)
             geom_rows.append(polys.merge(f, on="bubble_id", how="inner"))
 
-    if not feat_rows:
+    if not geom_rows:
         raise SystemExit("no bubbles detected anywhere in the lake -- check the "
                          "lake polygon, the checkpoint and the threshold")
 

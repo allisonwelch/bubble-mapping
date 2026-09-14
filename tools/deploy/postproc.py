@@ -11,6 +11,13 @@ CPU only, no torch, so it runs anywhere against a bubbles.gpkg the GPU stage
 produced. `--from-pred-dir` points it at an existing prediction directory
 instead, which is how the chain gets exercised without a lake-scale run.
 
+BOTH MODELS ARE FROZEN ARTIFACTS, loaded from disk beside the checkpoint
+(`tools.deploy.build_artifacts`). This stage deploys; it does not train. Passing
+`--refit` fits them from the labeler packs instead, which requires the packs to
+be present on this machine and makes the run unreproducible -- so it is opt-in,
+never a fallback. The run's model provenance, including the sha256 of every
+input pack, is stamped into `run_info_postproc.json` and into the output gpkgs.
+
 The dissolve protocol is not negotiable: most of the classifier's features come
 from the dissolve, and it was trained on rows built by
 `fit_classifier.dissolve_to_seeps`. `dissolve_bubbles_to_seeps` below mirrors
@@ -35,9 +42,12 @@ import pandas as pd
 from shapely.ops import unary_union
 from tqdm import tqdm
 
-from tools.classify.fit_classifier import (CLASSES, FEATURES as CLASS_FEATURES,
-                                           fit_deploy_model)
-from tools.deploy import runinfo
+import sklearn
+
+from tools.classify.fit_classifier import (CLASSES,
+                                           FEATURES as CLASS_FEATURES,
+                                           decide_with_cost)
+from tools.deploy import build_artifacts, runinfo
 from tools.flux import rates as flux_rates
 from tools.grouping.deploy_grouper import _pair_features, constrained_cluster
 from tools.grouping.train_grouper import AGGLOM_CAP_M, FEATURES as PAIR_FEATURES
@@ -126,12 +136,20 @@ def group_bubbles(clf, bubbles, thr=GROUP_THR, cap=AGGLOM_CAP_M, progress=True):
     components let chains of short edges bridge into runaway seeps, and flux is
     count-based, so one runaway seep is a real error in the total.
     """
-    sgid = bubbles["bubble_id"].astype(np.int64).copy()
+    # Positional throughout. The previous version wrote via
+    # `sgid.iloc[sub.index[m]]`, mixing index LABELS into a positional setter:
+    # it happened to be correct only because `run()` resets the index first,
+    # and on any other index it either raised or -- worse, when the labels were
+    # a permutation that happened to be in range -- silently assigned each
+    # group's id to the wrong bubbles.
+    sgid = bubbles["bubble_id"].astype(np.int64).to_numpy().copy()
+    pos_of = {lbl: i for i, lbl in enumerate(bubbles.index)}
     n_multi = 0
     groups = list(bubbles.groupby("image"))
     for im, sub in tqdm(groups, desc="group", disable=not progress):
         if len(sub) < 2:
             continue
+        sub_pos = np.fromiter((pos_of[l] for l in sub.index), int, len(sub))
         fx = sub["centroid_x_m"].to_numpy(float)
         fy = sub["centroid_y_m"].to_numpy(float)
         fa = sub["area_m2"].to_numpy(float)
@@ -145,9 +163,10 @@ def group_bubbles(clf, bubbles, thr=GROUP_THR, cap=AGGLOM_CAP_M, progress=True):
         ids = sub["bubble_id"].to_numpy(np.int64)
         for c in np.unique(comp):
             m = np.where(comp == c)[0]
-            sgid.iloc[sub.index[m]] = int(ids[m].max())   # collision-safe anchor
+            sgid[sub_pos[m]] = int(ids[m].max())          # collision-safe anchor
             if len(m) > 1:
                 n_multi += 1
+    sgid = pd.Series(sgid, index=bubbles.index, name="seep_group_id")
     print(f"[group] {len(bubbles)} bubbles -> "
           f"{bubbles.assign(_g=sgid).groupby(['image', '_g']).ngroups} seeps "
           f"({n_multi} multi-bubble)")
@@ -193,14 +212,58 @@ def dissolve_bubbles_to_seeps(bubbles, progress=True):
 # --------------------------------------------------------------------------- #
 # classify + flux
 # --------------------------------------------------------------------------- #
-def classify_seeps(seeps, clf):
-    """Attach `class` and the per-class posterior columns."""
+# --------------------------------------------------------------------------- #
+# THE DECISION RULE -- posterior -> class label
+# --------------------------------------------------------------------------- #
+# The forest emits a posterior; turning that into one label is a separate
+# choice, and it is the cheapest lever on the reported flux. Made explicit here
+# rather than left implicit inside `clf.predict`, so a run records which rule
+# produced its number.
+#
+#   argmax        the highest-posterior class. Bayes-optimal under 0/1 loss --
+#                 it treats calling a C an A exactly as badly as calling an A a
+#                 C. Flux does not: those cost 16 and 971 mg CH4/day.
+#   conservative  minimum expected cost over the ORDERED classes, with
+#                 over-calling penalised by `overcall_penalty`. Errs toward the
+#                 smaller class.
+#
+# Both use the same fitted forest, so switching needs no refit and no new
+# labels. Measured effect on the LOIO eval is in SECRET_CLAUDE.md section 3;
+# `--overcall-penalty 1.5` roughly halves the model's over-call bias while
+# improving accuracy, at the cost of a few C seeps' recall.
+DECISION_RULES = ("argmax", "conservative")
+DEFAULT_DECISION_RULE = "argmax"
+DEFAULT_OVERCALL_PENALTY = 1.5
+
+
+def classify_seeps(seeps, clf, decision_rule=DEFAULT_DECISION_RULE,
+                   overcall_penalty=DEFAULT_OVERCALL_PENALTY):
+    """Attach `class` and the per-class posterior columns.
+
+    `decision_rule` selects how the posterior becomes a label; the posterior
+    columns (`p_A` / `p_B` / `p_C`) are written either way, so a run can be
+    re-decided afterwards without re-running the forest.
+    """
+    if decision_rule not in DECISION_RULES:
+        raise ValueError(f"decision_rule must be one of {DECISION_RULES}, "
+                         f"got {decision_rule!r}")
     X = seeps[CLASS_FEATURES].to_numpy(dtype=float)
     seeps = seeps.copy()
-    seeps["class"] = clf.predict(X)
     proba = clf.predict_proba(X)
     for i, c in enumerate(clf.classes_):
         seeps[f"p_{c}"] = proba[:, i]
+
+    if decision_rule == "argmax":
+        seeps["class"] = clf.predict(X)
+    else:
+        # Reorder the posterior onto CLASSES, since clf.classes_ is only
+        # guaranteed sorted, not equal to CLASSES if a class went unseen.
+        cols = {c: i for i, c in enumerate(clf.classes_)}
+        p = np.zeros((len(X), len(CLASSES)), dtype=float)
+        for j, c in enumerate(CLASSES):
+            if c in cols:
+                p[:, j] = proba[:, cols[c]]
+        seeps["class"] = decide_with_cost(p, list(CLASSES), overcall_penalty)
     return seeps
 
 
@@ -295,18 +358,67 @@ def lake_totals_long(seeps, table, surveyed_area_m2=None, label=None,
 # --------------------------------------------------------------------------- #
 # driver
 # --------------------------------------------------------------------------- #
+def load_models(artifacts_dir=None, labeling_dir=None, refit=False, seed=42):
+    """(grouper, classifier, provenance) for a deploy run.
+
+    Frozen artifacts by default. `refit` re-fits both from the labeler packs,
+    which requires the packs to be on this machine and makes the run
+    unreproducible -- so it is opt-in, never a fallback.
+    """
+    if not refit:
+        grouper, classifier, manifest = build_artifacts.load_artifacts(
+            artifacts_dir)
+        prov = {
+            "source": "artifacts",
+            "artifacts_dir": os.path.abspath(
+                artifacts_dir or build_artifacts.default_out_dir()),
+            "built_utc": manifest.get("built_utc"),
+            "sklearn_version_built": manifest.get("sklearn_version"),
+            "sklearn_version_running": sklearn.__version__,
+            "seed": manifest.get("seed"),
+            "grouper": manifest.get("grouper", {}),
+            "classifier": manifest.get("classifier", {}),
+            "inputs": manifest.get("inputs", {}),
+        }
+        print(f"[models] loaded frozen artifacts from {prov['artifacts_dir']} "
+              f"(built {prov['built_utc']}, sklearn "
+              f"{prov['sklearn_version_built']})")
+        return grouper, classifier, prov
+
+    from tools.classify.fit_classifier import fit_deploy_model
+    from tools.grouping.deploy_grouper import train_model
+
+    print("[models] --refit: fitting both forests from the labeler packs. "
+          "This run is NOT reproducible from the artifacts on disk.")
+    grouper = train_model(seed=seed)
+    classifier, clf_info = fit_deploy_model(labeling_dir, seed=seed)
+    prov = {
+        "source": "refit",
+        "sklearn_version_running": sklearn.__version__,
+        "seed": seed,
+        "grouper": getattr(grouper, "fit_info_", {}),
+        "classifier": clf_info,
+    }
+    return grouper, classifier, prov
+
+
 def run(bubbles, out_dir, labeling_dir=None, thr=GROUP_THR, cap=AGGLOM_CAP_M,
         season="annual", surveyed_area_m2=None, upstream=None, progress=True,
-        source=None, label=None):
+        source=None, label=None, artifacts_dir=None, refit=False, seed=42,
+        decision_rule=DEFAULT_DECISION_RULE,
+        overcall_penalty=DEFAULT_OVERCALL_PENALTY):
     """Group -> dissolve -> classify -> flux. Returns (seeps, table, per_image).
+
+    Both models are loaded frozen from disk (`tools.deploy.build_artifacts`);
+    `refit=True` re-fits them from the labeler packs instead. The runner
+    deploys, it never trains -- see build_artifacts' docstring for what that
+    rule is protecting.
 
     `upstream` is the run metadata from whichever loader produced `bubbles`.
     It supplies the surveyed area unless `surveyed_area_m2` overrides it, and
     it is merged into the metadata stamped onto the outputs, so seeps.gpkg
     records the checkpoint and lake polygon it ultimately came from.
     """
-    from tools.grouping.deploy_grouper import train_model
-
     upstream = dict(upstream or {})
     if surveyed_area_m2 is None:
         surveyed_area_m2 = upstream.get("surveyed_area_m2")
@@ -325,15 +437,21 @@ def run(bubbles, out_dir, labeling_dir=None, thr=GROUP_THR, cap=AGGLOM_CAP_M,
               "cannot be turned into a density and is not comparable to "
               "another lake, another flight date, or a field figure.")
 
-    grouper = train_model()
+    grouper, classifier, model_prov = load_models(
+        artifacts_dir=artifacts_dir, labeling_dir=labeling_dir, refit=refit,
+        seed=seed)
+
     bubbles = bubbles.reset_index(drop=True)
     bubbles["seep_group_id"] = group_bubbles(grouper, bubbles, thr=thr, cap=cap,
                                              progress=progress)
 
     seeps = dissolve_bubbles_to_seeps(bubbles, progress=progress)
-
-    classifier, clf_info = fit_deploy_model(labeling_dir)
-    seeps = attach_flux(classify_seeps(seeps, classifier), season=season)
+    seeps = attach_flux(
+        classify_seeps(seeps, classifier, decision_rule=decision_rule,
+                       overcall_penalty=overcall_penalty), season=season)
+    rule_note = (f"{decision_rule}" if decision_rule == "argmax"
+                 else f"{decision_rule} (overcall penalty {overcall_penalty})")
+    print(f"[classify] decision rule: {rule_note}")
     print(f"[classify] {len(seeps)} seeps: "
           f"{seeps['class'].value_counts().reindex(CLASSES).fillna(0).astype(int).to_dict()}")
 
@@ -366,7 +484,10 @@ def run(bubbles, out_dir, labeling_dir=None, thr=GROUP_THR, cap=AGGLOM_CAP_M,
         "n_seeps": int(len(seeps)),
         "class_counts": {c: int((seeps["class"] == c).sum()) for c in CLASSES},
         "surveyed_area_m2": surveyed_area_m2,
-        "classifier": clf_info,
+        "decision_rule": decision_rule,
+        "overcall_penalty": (overcall_penalty if decision_rule == "conservative"
+                             else None),
+        "models": model_prov,
         "run_id": run_id,
         "runtime_s": round(time.time() - t0, 1),
     }}
@@ -409,8 +530,25 @@ def main(argv=None):
                      help="a canonical prediction directory "
                           "(bubble_features.csv + {stem}_cc.tif per chip)")
     ap.add_argument("--out-dir", required=True)
+    ap.add_argument("--artifacts-dir", default=None,
+                    help="where grouper_rf.joblib / classifier_rf.joblib live "
+                         f"(default: {build_artifacts.default_out_dir()})")
+    ap.add_argument("--refit", action="store_true",
+                    help="re-fit both forests from the labeler packs instead "
+                         "of loading the frozen artifacts. Requires the packs "
+                         "to be present and makes the run unreproducible.")
+    ap.add_argument("--seed", type=int, default=42,
+                    help="only used with --refit")
     ap.add_argument("--labeling-dir", default=None,
-                    help="the three final labeler packs (classifier training)")
+                    help="the three final labeler packs (only used with --refit)")
+    ap.add_argument("--decision-rule", default=DEFAULT_DECISION_RULE,
+                    choices=DECISION_RULES,
+                    help="how the class posterior becomes a label "
+                         "(default %(default)s)")
+    ap.add_argument("--overcall-penalty", type=float,
+                    default=DEFAULT_OVERCALL_PENALTY,
+                    help="only used by --decision-rule conservative "
+                         "(default %(default)s)")
     ap.add_argument("--thr", type=float, default=GROUP_THR)
     ap.add_argument("--cap", type=float, default=AGGLOM_CAP_M)
     ap.add_argument("--season", default="annual",
@@ -430,7 +568,9 @@ def main(argv=None):
     run(bubbles, args.out_dir, labeling_dir=args.labeling_dir, thr=args.thr,
         cap=args.cap, season=args.season,
         surveyed_area_m2=args.surveyed_area_m2, upstream=upstream,
-        source=source)
+        source=source, artifacts_dir=args.artifacts_dir, refit=args.refit,
+        seed=args.seed, decision_rule=args.decision_rule,
+        overcall_penalty=args.overcall_penalty)
 
 
 if __name__ == "__main__":

@@ -51,8 +51,8 @@ from shapely.ops import unary_union
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (classification_report, cohen_kappa_score,
                              confusion_matrix)
-from sklearn.model_selection import (GroupKFold, LeaveOneGroupOut,
-                                     cross_val_predict)
+from sklearn.base import clone
+from sklearn.model_selection import GroupKFold, LeaveOneGroupOut
 from sklearn.tree import DecisionTreeClassifier, export_text
 
 from tools.flux.rates import FLUX_RATE_ANNUAL as FLUX_RATE
@@ -305,7 +305,40 @@ def build_trainable_table(labeling_dir: str):
 
     keep = (seeps["is_context"] == 0) & (seeps["is_overgrouped"] == 0)
     df = seeps[keep].dropna(subset=FEATURES).reset_index(drop=True)
+    df["w"] = duplicate_weights(df)
     return packs, seeps, df, pack_rows
+
+
+def duplicate_weights(df: pd.DataFrame) -> pd.Series:
+    """1 / (distinct labelers on this seep's `phys_id`).
+
+    The three labelers overlap on the shared calibration units (21-NE, 38-SW,
+    4-SE) and on the 39.tif quarters, so the same physical seep appears up to
+    three times. Those units were sampled to measure kappa, not because those
+    seeps matter more -- unweighted, they carry up to 3x the influence of
+    everything else, and chip 4 alone takes 55.9% of the training rows for
+    49.3% of the evidence.
+
+    WHY NOT DEDUPLICATE. `phys_id` is a union-find over "shares any member
+    (image, bubble_id)", and it CHAINS: 41 ids hold more rows than labelers,
+    the worst fusing ~5 distinct seeps into one. That is exactly what you want
+    in a leakage guard -- over-merging only ever makes folds stricter -- but it
+    makes `phys_id` wrong as an identity to collapse on, because collapsing
+    deletes real seeps. Counting DISTINCT LABELERS instead of rows is chain-
+    safe: a 15-row, 3-labeler chain gets total weight 5, which is right.
+
+    WHY NOT RECONCILE THE CLASS. Reducing each seep to one label by MAX(C>B>A)
+    inflates C from 48 to 56 (+17%) out of nothing but disagreement -- max is
+    justified WITHIN a group by physics (one physical feature), but across
+    labelers it is max-of-noise on the rarest, highest-rate class. Keeping every
+    copy at fractional weight leaves the disagreement in the target as a soft
+    label, which is also what the Monte Carlo chain needs to sample.
+
+    Weights are computed AFTER the trainable-row filter, so copies dropped as
+    context or overgrouped do not dilute the copies that remain.
+    """
+    n_lab = df.groupby("phys_id")["labeler"].transform("nunique")
+    return 1.0 / n_lab.astype(float)
 
 
 def fit_deploy_model(labeling_dir: str | None = None, seed: int = 42):
@@ -323,17 +356,28 @@ def fit_deploy_model(labeling_dir: str | None = None, seed: int = 42):
     """
     labeling_dir = labeling_dir or default_labeling_dir()
     _, _, df, _ = build_trainable_table(labeling_dir)
+    w = df["w"].to_numpy(dtype=float)
     rf = RandomForestClassifier(random_state=seed, **RF_KWARGS)
-    rf.fit(df[FEATURES].to_numpy(dtype=float), df["class"].to_numpy())
+    rf.fit(df[FEATURES].to_numpy(dtype=float), df["class"].to_numpy(),
+           sample_weight=w)
     info = {
         "labeling_dir": os.path.abspath(labeling_dir),
+        "packs": sorted(os.path.basename(p) for p in
+                        (os.path.join(labeling_dir,
+                                      f"gt_seeps_label_quarters_{who}_grouped.gpkg")
+                         for who in LABELERS)),
         "features": list(FEATURES),
         "rf_kwargs": dict(RF_KWARGS),
         "seed": seed,
+        "sample_weight": "1/(distinct labelers per phys_id)",
         "n_training_seeps": int(len(df)),
         "n_physical_seeps": int(df["phys_id"].nunique()),
+        "effective_n": float(w.sum()),
         "n_chips": int(df["image"].nunique()),
         "class_balance": {c: int((df["class"] == c).sum()) for c in CLASSES},
+        "class_balance_weighted": {
+            c: round(float(w[df["class"].to_numpy() == c].sum()), 1)
+            for c in CLASSES},
     }
     return rf, info
 
@@ -357,31 +401,143 @@ def interpret(k: float) -> str:
 # --------------------------------------------------------------------------- #
 # model
 # --------------------------------------------------------------------------- #
-def evaluate(model_name, cv_name, clf, X, y, groups, cv) -> dict:
+def oof_predict(clf, X, y, w, groups, cv) -> np.ndarray:
+    """Grouped out-of-fold predictions, fitting each fold WITH the weights.
+
+    Hand-rolled rather than `cross_val_predict`, which only forwards
+    sample_weight through sklearn's metadata routing -- and a silently
+    unweighted fit is the exact failure the weighting exists to prevent.
+    """
+    pred = np.empty(len(y), dtype=object)
+    for tr, te in cv.split(X, y, groups=groups):
+        m = clone(clf).fit(X[tr], y[tr], sample_weight=w[tr])
+        pred[te] = m.predict(X[te])
+    return pred.astype(str)
+
+
+def decide_with_cost(proba, classes, overcall_penalty: float = 1.0):
+    """Minimum-expected-cost class, with over-calling penalised.
+
+    Plain `predict` is argmax of the posterior, which is the Bayes rule under a
+    0/1 loss -- it treats calling a C an A exactly as badly as calling an A a C.
+    Flux does not: A, B and C are 16, 131 and 971 mg CH4/day, so the two
+    directions are worth 60x different amounts, and the classes are ORDERED.
+
+    Cost of predicting `c` when the truth is `k`:
+
+        |rank(c) - rank(k)|  x  (overcall_penalty if rank(c) > rank(k) else 1)
+
+    `overcall_penalty = 1` reduces to a symmetric ordinal cost (and, on three
+    ordered classes, usually to argmax). Above 1, a seep is only promoted to a
+    higher class when the posterior is confident enough to pay the penalty, so
+    the model errs toward the SMALLER class.
+
+    Note this is the opposite lever from `class_weight="balanced"`, which
+    up-weights rare C during fitting and therefore pushes predictions UP. The
+    two can be combined, and the sweep in `main` reports what that costs.
+
+    This is a decision rule, not a different model: the forest is unchanged and
+    only the posterior -> label step moves. So it can be switched on at deploy
+    without refitting, and it never needs new training data.
+    """
+    rank = np.array([CLASS_RANK[c] for c in classes], dtype=float)
+    # cost[k, c]
+    diff = rank[None, :] - rank[:, None]
+    cost = np.abs(diff) * np.where(diff > 0, overcall_penalty, 1.0)
+    exp_cost = proba @ cost          # (n, c): expected cost of each decision
+    return np.asarray(classes)[exp_cost.argmin(axis=1)]
+
+
+def oof_proba_matrix(clf, X, y, w, groups, cv):
+    """Out-of-fold class posteriors, aligned to `CLASSES`."""
+    proba = np.zeros((len(y), len(CLASSES)), dtype=float)
+    for tr, te in cv.split(X, y, groups=groups):
+        m = clone(clf).fit(X[tr], y[tr], sample_weight=w[tr])
+        cols = {c: i for i, c in enumerate(m.classes_)}
+        for j, c in enumerate(CLASSES):
+            if c in cols:
+                proba[te, j] = m.predict_proba(X[te])[:, cols[c]]
+    return proba
+
+
+def overcall_sweep(model_name, cv_name, clf, X, y, w, groups, cv,
+                   penalties) -> pd.DataFrame:
+    """What asymmetric costs buy, measured. One row per penalty.
+
+    Scored out-of-fold on the same folds as everything else, so the rows are
+    comparable to the headline. `direction_ratio` is over-calls / under-calls:
+    below 1 means the model is erring toward the smaller class, which is the
+    whole point of the knob.
+    """
+    proba = oof_proba_matrix(clf, X, y, w, groups, cv)
+    rank = {c: CLASS_RANK[c] for c in CLASSES}
+    ry = np.array([rank[c] for c in y])
+    rows = []
+    for lam in penalties:
+        pred = decide_with_cost(proba, CLASSES, lam)
+        rp = np.array([rank[c] for c in pred])
+        over = float(w[rp > ry].sum())
+        under = float(w[rp < ry].sum())
+        rep = classification_report(y, pred, labels=CLASSES, output_dict=True,
+                                    zero_division=0, sample_weight=w)
+        n_true = {c: int(round(w[y == c].sum())) for c in CLASSES}
+        n_pred = {c: int(round(w[pred == c].sum())) for c in CLASSES}
+        ft, _ = lake_total(n_true)
+        fp_, _ = lake_total(n_pred)
+        rows.append({
+            "model": model_name, "cv": cv_name, "overcall_penalty": lam,
+            "accuracy": float(np.average(pred == y, weights=w)),
+            "macro_f1": rep["macro avg"]["f1-score"],
+            "A_recall": rep["A"]["recall"], "B_recall": rep["B"]["recall"],
+            "C_recall": rep["C"]["recall"],
+            "A_precision": rep["A"]["precision"],
+            "B_precision": rep["B"]["precision"],
+            "C_precision": rep["C"]["precision"],
+            "C_f1": rep["C"]["f1-score"],
+            "n_pred_A": n_pred["A"], "n_pred_B": n_pred["B"],
+            "n_pred_C": n_pred["C"],
+            "overcalls": round(over, 1), "undercalls": round(under, 1),
+            "direction_ratio": (over / under) if under else float("nan"),
+            "flux_pred_mg_per_day": fp_,
+            "flux_err_pct": 100 * (fp_ - ft) / ft if ft else float("nan"),
+        })
+    return pd.DataFrame(rows)
+
+
+def evaluate(model_name, cv_name, clf, X, y, w, groups, cv) -> dict:
     """Grouped-CV out-of-fold predictions -> the metrics we actually report.
+
+    Every metric is weighted by `w`, so a seep that three people labeled counts
+    once rather than three times. The numbers therefore describe PHYSICAL seeps,
+    not labeled rows, and the support column is fractional for that reason.
 
     Returns the printed numbers as three workbook-ready pieces: a one-row
     `summary`, a per-class `per_class` table, and the `confusion` matrix.
     """
-    pred = cross_val_predict(clf, X, y, groups=groups, cv=cv)
-    acc = (pred == y).mean()
+    pred = oof_predict(clf, X, y, w, groups, cv)
+    acc = float(np.average(pred == y, weights=w))
     rep = classification_report(y, pred, labels=CLASSES, output_dict=True,
-                                zero_division=0)
+                                zero_division=0, sample_weight=w)
     name = f"{model_name} | {cv_name}"
     print(f"\n--- {name} ---")
     print(f"accuracy = {acc:.3f}   macro-F1 = {rep['macro avg']['f1-score']:.3f}"
           f"   weighted-F1 = {rep['weighted avg']['f1-score']:.3f}")
     print(classification_report(y, pred, labels=CLASSES, zero_division=0,
-                                digits=3))
-    cm = pd.DataFrame(confusion_matrix(y, pred, labels=CLASSES),
-                      index=[f"true_{c}" for c in CLASSES],
-                      columns=[f"pred_{c}" for c in CLASSES])
-    print("confusion matrix (rows=truth):")
+                                digits=3, sample_weight=w))
+    cm = pd.DataFrame(
+        np.rint(confusion_matrix(y, pred, labels=CLASSES,
+                                 sample_weight=w)).astype(int),
+        index=[f"true_{c}" for c in CLASSES],
+        columns=[f"pred_{c}" for c in CLASSES])
+    print("confusion matrix (rows=truth, weighted to physical seeps):")
     print("  " + cm.to_string().replace("\n", "\n  "))
 
     # The project's real objective: count-based flux = sum(count x rate).
-    n_true = {c: int((y == c).sum()) for c in CLASSES}
-    n_pred = {c: int((pred == c).sum()) for c in CLASSES}
+    # Weighted, so the shared calibration units are not counted once per
+    # labeler -- that double count is what made the labeled subset overshoot
+    # the whole-lake figure (next_steps 2026-09-08 section 7).
+    n_true = {c: int(round(w[y == c].sum())) for c in CLASSES}
+    n_pred = {c: int(round(w[pred == c].sum())) for c in CLASSES}
     ft, ft_std_err = lake_total(n_true)
     fp, _ = lake_total(n_pred)
     err = 100 * (fp - ft) / ft
@@ -397,12 +553,13 @@ def evaluate(model_name, cv_name, clf, X, y, groups, cv) -> dict:
     # C is the rarest class but carries the largest share of the flux, so its
     # recall is reported separately -- a small C miscount moves the total more
     # than all A/B error.
-    nc_t, nc_p = int((y == "C").sum()), int((pred == "C").sum())
+    nc_t, nc_p = n_true["C"], n_pred["C"]
     c_term = 100 * FLUX_RATE["C"] * (nc_p - nc_t) / ft
     print(f"  C seeps: {nc_p} predicted vs {nc_t} true "
           f"({c_term:+.1f}% of total flux)")
 
     summary = {"model": model_name, "cv": cv_name, "n_seeps": int(len(y)),
+               "effective_n": round(float(w.sum()), 1),
                "accuracy": float(acc),
                "macro_f1": rep["macro avg"]["f1-score"],
                "weighted_f1": rep["weighted avg"]["f1-score"]}
@@ -421,7 +578,8 @@ def evaluate(model_name, cv_name, clf, X, y, groups, cv) -> dict:
     per_class = pd.DataFrame(
         [{"model": model_name, "cv": cv_name, "class": c,
           "precision": rep[c]["precision"], "recall": rep[c]["recall"],
-          "f1": rep[c]["f1-score"], "support": int(rep[c]["support"])}
+          "f1": rep[c]["f1-score"],
+          "support": round(float(rep[c]["support"]), 1)}
          for c in CLASSES])
     conf = cm.reset_index(names="truth")
     conf.insert(0, "cv", cv_name)
@@ -470,9 +628,20 @@ def main() -> None:
     ap.add_argument("--out-dir", default=CLASSIFY_OUT_DIR,
                     help="where the results workbook is written "
                          f"(default {CLASSIFY_OUT_DIR})")
-    ap.add_argument("--out-xlsx", default="classifier_results.xlsx",
-                    help="workbook filename inside --out-dir")
+    ap.add_argument("--out-xlsx", default=None,
+                    help="workbook filename inside --out-dir. Default is "
+                         "classifier_results_{date}_{time}.xlsx, so a rerun "
+                         "never silently overwrites the last answer -- the "
+                         "point of these files is comparing runs to each other.")
+    ap.add_argument("--overcall-penalty", type=float, nargs="*",
+                    default=[1.0, 1.5, 2.0, 3.0],
+                    help="asymmetric-cost sweep for the conservative decision "
+                         "rule; 1.0 is argmax-equivalent. Diagnostic only -- "
+                         "the deploy model keeps plain argmax (see "
+                         "decide_with_cost).")
     args = ap.parse_args()
+    stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_xlsx = args.out_xlsx or f"classifier_results_{stamp}.xlsx"
 
     print("=" * 72)
     print("LOADING PACKS")
@@ -497,7 +666,12 @@ def main() -> None:
 
     X = df[FEATURES].to_numpy(dtype=float)
     y = df["class"].to_numpy()
+    w = df["w"].to_numpy(dtype=float)
     groups = df["phys_id"].to_numpy()
+    print(f"  duplicate weighting: 1/(distinct labelers per phys_id) -> "
+          f"effective n = {w.sum():.1f}")
+    print("  weighted class balance: "
+          + str({c: round(float(w[y == c].sum()), 1) for c in CLASSES}))
 
     print("\n" + "=" * 72)
     print("MODEL SELECTION (grouped 5-fold, grouped on physical seep)")
@@ -512,10 +686,11 @@ def main() -> None:
         for d in depths:
             clf = DecisionTreeClassifier(max_depth=d, class_weight="balanced",
                                          random_state=args.seed)
-            p = cross_val_predict(clf, X, y, groups=groups, cv=cv)
+            p = oof_predict(clf, X, y, w, groups, cv)
             r = classification_report(y, p, labels=CLASSES, output_dict=True,
-                                      zero_division=0)
-            scores[d] = (r["macro avg"]["f1-score"], (p == y).mean())
+                                      zero_division=0, sample_weight=w)
+            scores[d] = (r["macro avg"]["f1-score"],
+                         float(np.average(p == y, weights=w)))
             print(f"  depth {d}: macro-F1={scores[d][0]:.3f}  "
                   f"accuracy={scores[d][1]:.3f}")
         best = max(scores, key=lambda d: scores[d][0])
@@ -545,13 +720,38 @@ def main() -> None:
         print(f"PERFORMANCE ({model_name}, class_weight=balanced)")
         print("=" * 72)
         for cv_name, g_, cv_ in runs:
-            results.append(evaluate(model_name, cv_name, model, X, y, g_, cv_))
+            results.append(evaluate(model_name, cv_name, model, X, y, w,
+                                    g_, cv_))
+
+    # ---- conservative decision rule: what does erring downward cost? ------ #
+    # Same forest, same folds, only the posterior -> label step changes. Run on
+    # LOIO because that is the deployment regime; the point is to see whether a
+    # smaller-class bias can be bought without wrecking C recall.
+    sweep = pd.DataFrame()
+    if args.overcall_penalty:
+        loio_run = [r for r in runs if r[0].startswith("Leave-one-image-out")]
+        cv_name, g_, cv_ = (loio_run or runs)[0]
+        print("\n" + "=" * 72)
+        print(f"CONSERVATIVE DECISION RULE ({rf_name} | {cv_name})")
+        print("=" * 72)
+        print("penalty 1.0 = argmax-equivalent; higher = only promote a seep to "
+              "a\nhigher class when the posterior pays for it.")
+        sweep = overcall_sweep(rf_name, cv_name, rf, X, y, w, g_, cv_,
+                               args.overcall_penalty)
+        cols = ["overcall_penalty", "accuracy", "macro_f1", "A_recall",
+                "B_recall", "C_recall", "C_f1", "n_pred_A", "n_pred_B",
+                "n_pred_C", "overcalls", "undercalls", "direction_ratio",
+                "flux_err_pct"]
+        print(sweep[cols].to_string(index=False,
+                                    float_format=lambda v: f"{v:.3f}"))
+        print(f"(truth counts: "
+              f"{ {c: int(round(w[y == c].sum())) for c in CLASSES} })")
 
     print("\n" + "=" * 72)
     print("FINAL MODELS (fit on all data)")
     print("=" * 72)
-    clf.fit(X, y)
-    rf.fit(X, y)
+    clf.fit(X, y, sample_weight=w)
+    rf.fit(X, y, sample_weight=w)
     imp_rows = []
     for model_name, model in ((dt_name, clf), (rf_name, rf)):
         print(f"{model_name} feature importances:")
@@ -582,6 +782,9 @@ def main() -> None:
         {"key": "n_training_seeps", "value": int(len(df))},
         {"key": "n_physical_seeps", "value": int(df["phys_id"].nunique())},
         {"key": "n_duplicate_labelings", "value": int(n_dup)},
+        {"key": "sample_weight",
+         "value": "1/(distinct labelers per phys_id)"},
+        {"key": "effective_n", "value": round(float(w.sum()), 1)},
         {"key": "n_dropped_context", "value":
             int((seeps["is_context"] == 1).sum())},
         {"key": "n_dropped_overgrouped", "value":
@@ -609,9 +812,11 @@ def main() -> None:
     }
     if sweep_rows:
         sheets["depth_sweep"] = pd.DataFrame(sweep_rows)
+    if not sweep.empty:
+        sheets["overcall_sweep"] = sweep
 
     written = write_workbook(sheets,
-                             os.path.join(args.out_dir, args.out_xlsx))
+                             os.path.join(args.out_dir, out_xlsx))
     for p in written:
         print(f"[out] {p}")
 

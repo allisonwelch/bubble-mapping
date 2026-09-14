@@ -44,22 +44,46 @@ from scipy.sparse.csgraph import connected_components
 from sklearn.ensemble import RandomForestClassifier
 
 from tools.grouping.train_grouper import (
-    load_labeled, build_pairs, FEATURES, CAND_RADIUS, AGGLOM_CAP_M)
+    load_labeled, build_pairs, FEATURES, CAND_RADIUS, AGGLOM_CAP_M,
+    LABELERS as GROUPER_LABELERS, _pack_path)
 
 STYLE_NAME = "group_hull_by_class"
 # class fill colors (r,g,b) -- ColorBrewer Dark2; alpha 128 == 50% opacity.
 CLASS_RGB = {"A": "27,158,119", "B": "217,95,2", "C": "117,112,179"}
 
 
-def train_model(thr_note=True):
+def train_model(thr_note=True, seed=42):
+    """Fit the deploy-point pairwise forest on every labeled pair.
+
+    `sample_weight` is the 1/(distinct labelers) weight build_pairs attaches:
+    the three packs overlap on the shared calibration units, and without it
+    those pairs would carry up to 3x the influence of everything else. Fitting
+    unweighted here while train_grouper reports weighted numbers would mean the
+    deployed model is not the one that was scored.
+    """
     L, fields = load_labeled()
     L, feat, ii, jj, y, img = build_pairs(L, fields)
     X = feat[FEATURES].to_numpy(float)
+    w = feat["w"].to_numpy(float)
     clf = RandomForestClassifier(n_estimators=400, class_weight="balanced",
-                                 random_state=42, n_jobs=-1)
-    clf.fit(X, y)
-    print(f"[train] {len(y)} pairs ({int(y.sum())} same) -> RandomForest fit "
+                                 random_state=seed, n_jobs=-1)
+    clf.fit(X, y, sample_weight=w)
+    info = {
+        "packs": [os.path.basename(_pack_path(p)) for p in GROUPER_LABELERS],
+        "features": list(FEATURES),
+        "seed": seed,
+        "n_pairs": int(len(y)),
+        "n_physical_pairs": int(feat["pair_uid"].nunique()),
+        "n_same": int(y.sum()),
+        "n_images": int(L["image"].nunique()),
+        "cand_radius_m": CAND_RADIUS,
+        "agglom_cap_m": AGGLOM_CAP_M,
+        "rf_kwargs": {"n_estimators": 400, "class_weight": "balanced"},
+    }
+    print(f"[train] {len(y)} pairs ({int(y.sum())} same, "
+          f"{feat['pair_uid'].nunique()} physical) -> RandomForest fit "
           f"on {L['image'].nunique()} images")
+    clf.fit_info_ = info
     return clf
 
 

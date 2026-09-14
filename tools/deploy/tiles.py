@@ -46,10 +46,16 @@ def read_lake_geom(path: str, layer: str | None = None, target_crs=None):
     """
     if gpd is None:
         raise RuntimeError("geopandas is required to read a lake polygon")
-    if layer is None and path.count(":") > 1:
-        # "C:/x/lakes.gpkg:octopus" -- only the LAST colon is a layer separator
-        head, _, tail = path.rpartition(":")
-        if head and not tail.endswith((".gpkg", ".shp", ".geojson")):
+    if layer is None and not os.path.exists(path):
+        # "…/lakes.gpkg:octopus" -- only the LAST colon is a layer separator,
+        # and a Windows drive letter contributes one of its own. Decided by
+        # what is on disk rather than by counting colons: the old
+        # `path.count(":") > 1` test never fired on a POSIX
+        # "lakes.gpkg:octopus", so the layer suffix was silently ignored on
+        # exactly the platform the HPC runs.
+        head, sep, tail = path.rpartition(":")
+        if sep and tail and not os.path.splitext(tail)[1] \
+                and os.path.exists(head):
             path, layer = head, tail
     g = gpd.read_file(path, layer=layer) if layer else gpd.read_file(path)
     if g.empty:

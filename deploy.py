@@ -40,6 +40,7 @@ import argparse
 import os
 import sys
 
+from tools.deploy import build_artifacts
 from tools.deploy import postproc as postproc_mod
 from tools.deploy import tiles as tiles_mod
 from tools.flux import rates as flux_rates
@@ -102,8 +103,56 @@ def build_parser():
                      help="max seep centroid span in metres (default %(default)s)")
     grp.add_argument("--season", default="annual",
                      choices=sorted(flux_rates.SEASONS))
+    # The grouper and classifier are FROZEN ARTIFACTS, loaded from disk beside
+    # the checkpoint. A deploy run must not train: refitting from the packs on
+    # every run makes deployment depend on the training data being present, lets
+    # a pack edit silently change the deployed model, and makes an old number
+    # irreproducible. Build them with `python -m tools.deploy.build_artifacts`.
+    grp.add_argument("--artifacts-dir", default=None,
+                     help="where grouper_rf.joblib / classifier_rf.joblib live "
+                          f"(default: {build_artifacts.default_out_dir()})")
+    grp.add_argument("--refit", action="store_true",
+                     help="re-fit both forests from the labeler packs instead "
+                          "of loading the frozen artifacts. Needs the packs "
+                          "present; makes the run unreproducible.")
+    grp.add_argument("--seed", type=int, default=42,
+                     help="only used with --refit")
     grp.add_argument("--labeling-dir", default=None,
-                     help="the three labeler packs the classifier is fit on")
+                     help="the three labeler packs the classifier is fit on "
+                          "(only used with --refit)")
+
+    # ---------------------------------------------------------------- #
+    # DECISION RULE -- how a class posterior becomes an A/B/C label.
+    # ---------------------------------------------------------------- #
+    # Separated from the model on purpose: the forest emits a posterior, and
+    # turning that into one label is an independent choice that moves the
+    # reported flux without any refitting or new labels.
+    #
+    #   argmax        highest-posterior class. Bayes-optimal under 0/1 loss,
+    #                 which treats an A-called-C exactly like a C-called-A.
+    #                 Flux does not -- those are 16 vs 971 mg CH4/day. This is
+    #                 the default and the regime every recorded number is in.
+    #   conservative  minimum expected cost over the ORDERED classes, with
+    #                 over-calling penalised, so the model errs toward the
+    #                 SMALLER class. Measured at penalty 1.5 on the LOIO eval:
+    #                 accuracy 0.837 -> 0.856, over-call bias 1.93:1 -> 1.17:1,
+    #                 classifier flux error +11.9% -> +0.9%, at the cost of C
+    #                 recall 0.563 -> 0.514. Numbers in SECRET_CLAUDE.md §3.
+    #
+    # Both rules write p_A / p_B / p_C to seeps.gpkg, so a finished run can be
+    # re-decided without re-running anything.
+    dec = ap.add_argument_group("decision rule")
+    dec.add_argument("--decision-rule", default=postproc_mod.DEFAULT_DECISION_RULE,
+                     choices=postproc_mod.DECISION_RULES,
+                     help="posterior -> A/B/C label. 'argmax' (default) is the "
+                          "regime every recorded metric is in; 'conservative' "
+                          "errs toward the smaller class.")
+    dec.add_argument("--overcall-penalty", type=float,
+                     default=postproc_mod.DEFAULT_OVERCALL_PENALTY,
+                     help="how much worse a promotion is than a demotion. Only "
+                          "read by --decision-rule conservative. 1.0 is "
+                          "argmax-like; above ~2 the model stops predicting C "
+                          "(default %(default)s)")
 
     ap.add_argument("--stage", default="all",
                     choices=["all", "detect", "postproc"])
@@ -167,7 +216,10 @@ def main(argv=None):
         postproc_mod.run(
             bubbles, args.out_dir, labeling_dir=args.labeling_dir,
             thr=args.thr, cap=args.cap, season=args.season,
-            upstream=info or upstream, source=source, label=args.label)
+            upstream=info or upstream, source=source, label=args.label,
+            artifacts_dir=args.artifacts_dir, refit=args.refit, seed=args.seed,
+            decision_rule=args.decision_rule,
+            overcall_penalty=args.overcall_penalty)
 
     print(f"\n[deploy] done -> {os.path.abspath(args.out_dir)}")
 
