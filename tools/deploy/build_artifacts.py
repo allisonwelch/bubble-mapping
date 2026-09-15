@@ -79,9 +79,17 @@ def _hash_inputs(paths) -> dict:
 
 
 def build(out_dir: str | None = None, seed: int = 42,
-          labeling_dir: str | None = None) -> dict:
-    """Fit both models once and write them plus the manifest. Returns the manifest."""
-    from tools.classify.fit_classifier import (LABELERS, default_labeling_dir,
+          labeling_dir: str | None = None,
+          brightness: str | None = None) -> dict:
+    """Fit both models once and write them plus the manifest. Returns the manifest.
+
+    `brightness` selects the classifier's brightness convention and is recorded
+    in the manifest, because the runner has to re-apply the same one. See
+    tools/classify/brightness.py for why that matters and what the two modes
+    measure.
+    """
+    from tools.classify.fit_classifier import (DEFAULT_BRIGHTNESS, LABELERS,
+                                               default_labeling_dir,
                                                fit_deploy_model)
     from tools.grouping import train_grouper as tg
     from tools.grouping.deploy_grouper import train_model
@@ -99,7 +107,8 @@ def build(out_dir: str | None = None, seed: int = 42,
     print("\n" + "=" * 72)
     print("FITTING THE CLASSIFIER")
     print("=" * 72)
-    classifier, classifier_info = fit_deploy_model(labeling_dir, seed=seed)
+    classifier, classifier_info = fit_deploy_model(
+        labeling_dir, seed=seed, brightness=brightness or DEFAULT_BRIGHTNESS)
 
     # Every file that fed either fit. A flux number is only reproducible if you
     # can tell which labels produced the models behind it.
@@ -223,8 +232,12 @@ def main(argv=None):
     ap.add_argument("--labeling-dir", default=None,
                     help="the three final labeler packs")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--brightness", default=None, choices=("abs", "rel"),
+                    help="classifier brightness convention; recorded in the "
+                         "manifest and re-applied by the runner")
     args = ap.parse_args(argv)
-    build(out_dir=args.out_dir, seed=args.seed, labeling_dir=args.labeling_dir)
+    build(out_dir=args.out_dir, seed=args.seed, labeling_dir=args.labeling_dir,
+          brightness=args.brightness)
 
 
 if __name__ == "__main__":

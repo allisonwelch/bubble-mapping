@@ -55,11 +55,49 @@ from sklearn.base import clone
 from sklearn.model_selection import GroupKFold, LeaveOneGroupOut
 from sklearn.tree import DecisionTreeClassifier, export_text
 
+from tools.classify import brightness as _brightness
 from tools.flux.rates import FLUX_RATE_ANNUAL as FLUX_RATE
 from tools.flux.rates import lake_total
 from tools.paths import CANONICAL_PRED_SUBDIR
 
 FEATURES = ["hull_area_m2", "mean_R", "mean_G", "mean_B"]
+
+# "abs" = mean_R/G/B as stored; "rel" = local percentile rank against the
+# surrounding bubbles (tools/classify/brightness.py). The mode a model was fit
+# under is recorded in artifacts.json and re-applied at deploy -- see
+# `fit_deploy_model`.
+#
+# MEASURED 2026-09-15, RandomForest 500 on leave-one-image-out (8 chips):
+#
+#              accuracy  macro_f1  C_recall  C_f1  flux_err_pct
+#     abs         0.837     0.695     0.563 0.533       +11.4
+#     rel         0.803     0.636     0.486 0.502        -4.9
+#
+# So "rel" LOSES on every classification metric and wins only on flux bias.
+# Taken alone that argues for "abs", and it is why the default is not a
+# foregone conclusion.
+#
+# But LOIO cannot see what "rel" is for. All 8 chips come from a handful of
+# flights over three lakes, so absolute brightness is far more comparable
+# BETWEEN THEM than between a chip and an arbitrary new ortho. The external
+# check settles it -- the whole lake run both ways, scored against the 2014
+# field transects, which nothing in the pipeline was ever fitted to:
+#
+#     class share %      abs    rel    field 2014
+#         A             88.3   86.4     64.5
+#         B             11.4   12.3     29.0
+#         C              0.3    1.3      6.6
+#
+# "rel" moves ALL THREE toward the field, C by 4x. That is the regime
+# deployment actually runs in, measured against the only independent truth
+# available on this lake, so the default is "rel".
+#
+# Read the disagreement honestly: "rel" is worse at reproducing a held-out
+# labeler's chip and better at transferring to a new image. Those are different
+# questions and the deployment one is the one that decides this. Neither mode
+# gets close to the field mix -- C is still 1.3% against 6.6% -- so the gap is
+# not closed, only narrowed.
+DEFAULT_BRIGHTNESS = "rel"
 CLASSES = ["A", "B", "C"]
 CLASS_RANK = {"A": 1, "B": 2, "C": 3}
 # Flux rates now live in tools/flux/rates.py, which owns them for the whole
@@ -259,7 +297,29 @@ def default_labeling_dir() -> str:
                         "labeling", "final_labeler_packs")
 
 
-def build_trainable_table(labeling_dir: str):
+def brightness_reference(labeling_dir: str) -> gpd.GeoDataFrame:
+    """Every GT bubble on every chip -- the population seeps are ranked against.
+
+    The all-chips field, not the labeler packs, for the same reason
+    `train_grouper` builds its density field from it: a pack covers one QUARTER
+    of a chip, so ranking against it would rank each labeler's seeps against a
+    different slice of the same image. Deployment ranks against every detected
+    bubble in the neighbourhood, and this is the labeled equivalent.
+    """
+    fp = os.path.join(labeling_dir, os.pardir, "gt_seeps_label_all_chips.gpkg")
+    fp = os.path.normpath(fp)
+    if not os.path.exists(fp):
+        raise SystemExit(
+            f"missing the all-chips bubble field: {fp}\n"
+            f"It is the reference population for relative brightness. Pass "
+            f"--brightness abs to fit on absolute brightness instead, but read "
+            f"why that fails cross-chip in tools/classify/brightness.py first.")
+    g = gpd.read_file(fp, layer="labels")
+    return g
+
+
+def build_trainable_table(labeling_dir: str,
+                          brightness: str = DEFAULT_BRIGHTNESS):
     """Load the three packs and build the seep table the classifier trains on.
 
     Returns (packs, seeps, df, pack_rows):
@@ -301,6 +361,16 @@ def build_trainable_table(labeling_dir: str):
                           "n_labeled_seeps": int(len(s))})
 
     seeps = pd.concat(per_pack, ignore_index=True)
+
+    # Before phys_id and before the trainable filter, so every downstream table
+    # -- kappa, the workbook, the deploy fit -- sees one brightness convention.
+    if brightness != "abs":
+        ref = brightness_reference(labeling_dir)
+        seeps = _brightness.relativize(seeps, ref, mode=brightness,
+                                       cell_m=None)
+        print(f"  [brightness] {brightness}: mean_R/G/B replaced by their "
+              f"percentile rank among the {len(ref)} bubbles of their own chip")
+
     seeps["phys_id"] = assign_phys_id(seeps)
 
     keep = (seeps["is_context"] == 0) & (seeps["is_overgrouped"] == 0)
@@ -341,7 +411,8 @@ def duplicate_weights(df: pd.DataFrame) -> pd.Series:
     return 1.0 / n_lab.astype(float)
 
 
-def fit_deploy_model(labeling_dir: str | None = None, seed: int = 42):
+def fit_deploy_model(labeling_dir: str | None = None, seed: int = 42,
+                     brightness: str = DEFAULT_BRIGHTNESS):
     """Fit the DEPLOY-POINT classifier on every trainable labeled seep.
 
     This is the model the whole-lake runner applies (tools/deploy/), so it is
@@ -355,7 +426,7 @@ def fit_deploy_model(labeling_dir: str | None = None, seed: int = 42):
     balance behind it.
     """
     labeling_dir = labeling_dir or default_labeling_dir()
-    _, _, df, _ = build_trainable_table(labeling_dir)
+    _, _, df, _ = build_trainable_table(labeling_dir, brightness=brightness)
     w = df["w"].to_numpy(dtype=float)
     rf = RandomForestClassifier(random_state=seed, **RF_KWARGS)
     rf.fit(df[FEATURES].to_numpy(dtype=float), df["class"].to_numpy(),
@@ -367,6 +438,13 @@ def fit_deploy_model(labeling_dir: str | None = None, seed: int = 42):
                                       f"gt_seeps_label_quarters_{who}_grouped.gpkg")
                          for who in LABELERS)),
         "features": list(FEATURES),
+        # The runner MUST re-apply this same transform before calling the
+        # forest. A model fit on percentile ranks and handed raw 0-255 values
+        # returns confident nonsense, so postproc reads this key and refuses to
+        # guess. `cell_m` is the neighbourhood size the ranks mean at deploy;
+        # it is null here because a training chip already IS the neighbourhood.
+        "brightness": brightness,
+        "brightness_cell_m": None,
         "rf_kwargs": dict(RF_KWARGS),
         "seed": seed,
         "sample_weight": "1/(distinct labelers per phys_id)",
@@ -633,6 +711,13 @@ def main() -> None:
                          "classifier_results_{date}_{time}.xlsx, so a rerun "
                          "never silently overwrites the last answer -- the "
                          "point of these files is comparing runs to each other.")
+    ap.add_argument("--brightness", choices=_brightness.BRIGHTNESS_MODES,
+                    default=DEFAULT_BRIGHTNESS,
+                    help="'rel' (default) ranks each seep's brightness against "
+                         "the bubbles around it; 'abs' uses raw mean_R/G/B. "
+                         "Judge the two on the LOIO rows, not grouped CV -- "
+                         "grouped CV shares chips between folds and so cannot "
+                         "see the exposure leak 'rel' exists to close.")
     ap.add_argument("--overcall-penalty", type=float, nargs="*",
                     default=[1.0, 1.5, 2.0, 3.0],
                     help="asymmetric-cost sweep for the conservative decision "
@@ -646,7 +731,8 @@ def main() -> None:
     print("=" * 72)
     print("LOADING PACKS")
     print("=" * 72)
-    packs, seeps, df, pack_rows = build_trainable_table(args.labeling_dir)
+    packs, seeps, df, pack_rows = build_trainable_table(
+        args.labeling_dir, brightness=args.brightness)
 
     kappa_sheets = kappa_report(packs)
 
@@ -775,6 +861,7 @@ def main() -> None:
             .strftime("%Y-%m-%d %H:%M:%S UTC")},
         {"key": "labeling_dir", "value": os.path.abspath(args.labeling_dir)},
         {"key": "features", "value": ", ".join(FEATURES)},
+        {"key": "brightness", "value": args.brightness},
         {"key": "seed", "value": args.seed},
         {"key": "decision_tree_max_depth", "value": best},
         {"key": "random_forest", "value": str(RF_KWARGS)},

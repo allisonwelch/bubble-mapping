@@ -44,11 +44,12 @@ from tqdm import tqdm
 
 import sklearn
 
+from tools.classify import brightness as _brightness
 from tools.classify.fit_classifier import (CLASSES,
                                            FEATURES as CLASS_FEATURES,
                                            decide_with_cost)
 from tools.deploy import build_artifacts, runinfo
-from tools.flux import rates as flux_rates
+from tools.flux import field_reference, rates as flux_rates
 from tools.grouping.deploy_grouper import _pair_features, constrained_cluster
 from tools.grouping.train_grouper import AGGLOM_CAP_M, FEATURES as PAIR_FEATURES
 
@@ -58,6 +59,29 @@ except ImportError:  # pragma: no cover
     gpd = None
 
 GROUP_THR = 0.6   # RF P(same) operating point, per deploy_grouper
+
+# --------------------------------------------------------------------------- #
+# THE CRACK SCREEN
+# --------------------------------------------------------------------------- #
+# The diameter cap constrains MERGES -- the span of a cluster the grouper is
+# about to form. It says nothing about a single connected component, so one
+# ice crack detected as one long blob sails through it untouched. On the
+# 2026-09-14 lake run every seep wider than 3 m was a single CC, and 212 of the
+# 219 CCs wider than the field maximum were long and thin.
+#
+# Both thresholds are anchored, not tuned:
+#   span   1.14 m is the largest seep envelope in any of the 8 field workbooks
+#          (tools/flux/field_reference). A single blob wider than the biggest
+#          seep anyone ever measured is not a seep.
+#   shape  perimeter^2 / (4 pi area): 1 for a circle, higher the more
+#          convoluted. Real bubbles come out near 2; cracks run past 4.
+#
+# BOTH must fire. Span alone would also drop the handful of wide-but-solid
+# blobs, which are likelier to be real features the detector merged than
+# cracks -- those are written to the screened file flagged `oversized` for
+# inspection rather than silently binned.
+SCREEN_MAX_SPAN_M = field_reference.MAX_SEEP_SPAN_M
+SCREEN_MIN_SHAPE = 4.0
 
 
 # --------------------------------------------------------------------------- #
@@ -119,6 +143,66 @@ def load_from_pred_dir(pred_dir: str):
             "surveyed_area_note": "sum of whole chip footprints; no lake "
                                   "polygon or alpha mask applied"}
     return gpd.GeoDataFrame(g, geometry="geometry", crs=out[0].crs), info
+
+
+# --------------------------------------------------------------------------- #
+# screening
+# --------------------------------------------------------------------------- #
+def _major_axis_m(geom) -> float:
+    """Longest side of the minimum rotated rectangle -- a shape's true width.
+
+    Not the equivalent-circle diameter, which hides exactly the case this
+    screen is for: a 3 m crack with a small area reads as a 10 cm circle.
+    """
+    mrr = geom.minimum_rotated_rectangle
+    ring = getattr(mrr, "exterior", None)
+    if ring is None:                       # degenerate: a point or a line
+        return float(mrr.length)
+    xs, ys = ring.coords.xy
+    return max(float(np.hypot(xs[i + 1] - xs[i], ys[i + 1] - ys[i]))
+               for i in range(4))
+
+
+def screen_bubbles(bubbles, max_span_m=SCREEN_MAX_SPAN_M,
+                   min_shape=SCREEN_MIN_SHAPE, progress=True):
+    """Drop crack-like connected components. Returns (kept, dropped).
+
+    `dropped` carries a `screen_reason` column and is written out so the screen
+    can be eyeballed in QGIS -- a screen nobody can audit is a screen nobody
+    should trust. Bubbles over the span limit that are NOT crack-shaped are
+    kept and flagged `oversized`, not removed.
+    """
+    if max_span_m is None:
+        return bubbles, bubbles.iloc[:0].copy()
+
+    span = np.array([_major_axis_m(g) for g in
+                     tqdm(bubbles.geometry.values, desc="screen",
+                          disable=not progress)])
+    area = bubbles["area_m2"].to_numpy(dtype=float)
+    perim = bubbles["perim_m"].to_numpy(dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        shape = np.where(area > 0, perim ** 2 / (4 * np.pi * area), np.inf)
+
+    wide = span > max_span_m
+    crack = wide & (shape >= min_shape)
+
+    dropped = bubbles[crack].copy()
+    dropped["span_m"] = span[crack]
+    dropped["shape_index"] = shape[crack]
+    dropped["screen_reason"] = "crack"
+
+    oversized = bubbles[wide & ~crack].copy()
+    if len(oversized):
+        oversized["span_m"] = span[wide & ~crack]
+        oversized["shape_index"] = shape[wide & ~crack]
+        oversized["screen_reason"] = "oversized_kept"
+        dropped = pd.concat([dropped, oversized], ignore_index=True)
+
+    kept = bubbles[~crack].reset_index(drop=True)
+    print(f"[screen] {int(crack.sum())} crack-like bubbles removed "
+          f"(span > {max_span_m} m and shape >= {min_shape}); "
+          f"{int((wide & ~crack).sum())} wide but solid kept and flagged")
+    return kept, dropped
 
 
 # --------------------------------------------------------------------------- #
@@ -402,11 +486,42 @@ def load_models(artifacts_dir=None, labeling_dir=None, refit=False, seed=42):
     return grouper, classifier, prov
 
 
+def _classifier_brightness(model_prov: dict) -> str:
+    """Which brightness convention the loaded classifier was fit under.
+
+    Artifacts built before 2026-09-15 carry no such key. They were fit on
+    absolute brightness, so that is the right fallback -- but it is announced,
+    because silently guessing wrong would rescale every feature the forest
+    splits on and change the class balance, which IS the flux.
+    """
+    info = (model_prov or {}).get("classifier") or {}
+    mode = info.get("brightness")
+    if mode is None:
+        print("[classify] artifact predates the brightness key; assuming "
+              "'abs'. Rebuild with tools.deploy.build_artifacts to record it.")
+        return "abs"
+    return mode
+
+
+def _default_brightness_cell_m(upstream: dict) -> float:
+    """Neighbourhood size for ranking, in metres.
+
+    The detector's own tile size when the run metadata carries it, because that
+    is already the scale the imagery was normalized over and the scale the
+    classifier's training chips were cut at. Falls back to the module default
+    for a bubbles.gpkg that records no grid.
+    """
+    grid = (upstream or {}).get("grid") or {}
+    return float(grid.get("tile_m") or _brightness.DEFAULT_CELL_M)
+
+
 def run(bubbles, out_dir, labeling_dir=None, thr=GROUP_THR, cap=AGGLOM_CAP_M,
         season="annual", surveyed_area_m2=None, upstream=None, progress=True,
         source=None, label=None, artifacts_dir=None, refit=False, seed=42,
         decision_rule=DEFAULT_DECISION_RULE,
-        overcall_penalty=DEFAULT_OVERCALL_PENALTY):
+        overcall_penalty=DEFAULT_OVERCALL_PENALTY,
+        max_span_m=SCREEN_MAX_SPAN_M, min_shape=SCREEN_MIN_SHAPE,
+        brightness_cell_m=None):
     """Group -> dissolve -> classify -> flux. Returns (seeps, table, per_image).
 
     Both models are loaded frozen from disk (`tools.deploy.build_artifacts`);
@@ -442,10 +557,29 @@ def run(bubbles, out_dir, labeling_dir=None, thr=GROUP_THR, cap=AGGLOM_CAP_M,
         seed=seed)
 
     bubbles = bubbles.reset_index(drop=True)
+    n_in = len(bubbles)
+    # Screen BEFORE grouping: a crack left in is not just a bad seep of its own,
+    # it is also a pairing candidate that can pull real bubbles into itself.
+    bubbles, screened = screen_bubbles(bubbles, max_span_m=max_span_m,
+                                       min_shape=min_shape, progress=progress)
+    bubbles = bubbles.reset_index(drop=True)
     bubbles["seep_group_id"] = group_bubbles(grouper, bubbles, thr=thr, cap=cap,
                                              progress=progress)
 
     seeps = dissolve_bubbles_to_seeps(bubbles, progress=progress)
+
+    # Re-apply whatever brightness convention the classifier was FIT under.
+    # Absolute values would be silently out of scale for a "rel" forest, so a
+    # missing key is an error rather than an assumption.
+    brightness_mode = _classifier_brightness(model_prov)
+    if brightness_mode != "abs":
+        cell_m = (brightness_cell_m if brightness_cell_m is not None
+                  else _default_brightness_cell_m(upstream))
+        print(f"[classify] brightness: {brightness_mode}, ranked within "
+              f"{cell_m} m cells of the {len(bubbles)} detected bubbles")
+        seeps = _brightness.relativize(seeps, bubbles, mode=brightness_mode,
+                                       cell_m=cell_m)
+
     seeps = attach_flux(
         classify_seeps(seeps, classifier, decision_rule=decision_rule,
                        overcall_penalty=overcall_penalty), season=season)
@@ -468,6 +602,17 @@ def run(bubbles, out_dir, labeling_dir=None, thr=GROUP_THR, cap=AGGLOM_CAP_M,
         os.path.join(out_dir, "seeps.csv"), index=False)
     table.to_csv(os.path.join(out_dir, "flux_summary.csv"), index=False)
     per_image.to_csv(os.path.join(out_dir, "flux_per_image.csv"), index=False)
+
+    if len(screened):
+        screened_fp = os.path.join(out_dir, "screened_bubbles.gpkg")
+        if os.path.exists(screened_fp):
+            os.remove(screened_fp)
+        screened.to_file(screened_fp, layer="screened", driver="GPKG")
+
+    bench = field_reference.compare(
+        seeps["class"].value_counts().to_dict(), surveyed_area_m2,
+        median_area_m2=seeps.groupby("class")["hull_area_m2"].median().to_dict())
+    bench.to_csv(os.path.join(out_dir, "field_benchmark.csv"), index=False)
     totals = lake_totals_long(seeps, table, surveyed_area_m2, label=label,
                               upstream=upstream, run_id=run_id)
     totals_fp = os.path.join(out_dir, f"lake_flux_totals_{run_id}.csv")
@@ -480,6 +625,16 @@ def run(bubbles, out_dir, labeling_dir=None, thr=GROUP_THR, cap=AGGLOM_CAP_M,
         "group_threshold": thr,
         "agglom_cap_m": cap,
         "season": season,
+        "screen_max_span_m": max_span_m,
+        "screen_min_shape": min_shape,
+        "n_bubbles_in": int(n_in),
+        "n_bubbles_screened": int((screened["screen_reason"] == "crack").sum())
+                              if len(screened) else 0,
+        "brightness": brightness_mode,
+        "brightness_cell_m": (None if brightness_mode == "abs"
+                              else _default_brightness_cell_m(upstream)
+                              if brightness_cell_m is None
+                              else brightness_cell_m),
         "n_bubbles": int(len(bubbles)),
         "n_seeps": int(len(seeps)),
         "class_counts": {c: int((seeps["class"] == c).sum()) for c in CLASSES},
@@ -496,14 +651,14 @@ def run(bubbles, out_dir, labeling_dir=None, thr=GROUP_THR, cap=AGGLOM_CAP_M,
     with open(os.path.join(out_dir, "run_info_postproc.json"), "w") as fh:
         json.dump(info, fh, indent=2, default=str)
 
-    _print_report(table, per_image, surveyed_area_m2)
+    _print_report(table, per_image, surveyed_area_m2, bench)
     print(f"[postproc] wrote {seeps_out} (+ seeps.csv, flux_summary.csv, "
-          f"flux_per_image.csv)")
+          f"flux_per_image.csv, field_benchmark.csv)")
     print(f"[postproc] wrote {totals_fp}")
     return seeps, table, per_image
 
 
-def _print_report(table, per_image, surveyed_area_m2):
+def _print_report(table, per_image, surveyed_area_m2, bench=None):
     print("\n" + "=" * 72)
     print("COUNT-BASED FLUX  (sum over classes of seep count x per-class rate)")
     print("=" * 72)
@@ -519,6 +674,18 @@ def _print_report(table, per_image, surveyed_area_m2):
           "grouper and\nclassifier error are not in it -- those need the Monte "
           "Carlo chain, which is not\nwritten yet. Quote this as a point "
           "estimate, with the surveyed area named.")
+
+    if bench is not None and len(bench):
+        print("\n" + "=" * 72)
+        print("AGAINST THE 2014 FIELD TRANSECTS  (external check, never fitted)")
+        print("=" * 72)
+        print(bench.to_string(index=False))
+        print(f"\nsource: {field_reference.SOURCE}")
+        print("The density row assumes a 1 m transect width (2 m halves it) -- "
+              "the workbooks\nrecord seep counts but not the width. Treat a "
+              "disagreement here as a lead to\nchase, NOT a parameter to tune: "
+              "these numbers are the only validation on this\nlake that no "
+              "stage of the pipeline was fitted to.")
 
 
 def main(argv=None):
@@ -551,6 +718,21 @@ def main(argv=None):
                          "(default %(default)s)")
     ap.add_argument("--thr", type=float, default=GROUP_THR)
     ap.add_argument("--cap", type=float, default=AGGLOM_CAP_M)
+    ap.add_argument("--max-span-m", type=float, default=SCREEN_MAX_SPAN_M,
+                    help="drop single connected components wider than this "
+                         "AND crack-shaped. Default %(default)s m is the "
+                         "largest seep envelope in the field workbooks, not a "
+                         "tuned value. Pass 0 to disable the screen.")
+    ap.add_argument("--min-shape", type=float, default=SCREEN_MIN_SHAPE,
+                    help="perimeter^2/(4 pi area) above which a wide blob "
+                         "counts as a crack (default %(default)s; a circle "
+                         "is 1, real bubbles ~2)")
+    ap.add_argument("--brightness-cell-m", type=float, default=None,
+                    help="neighbourhood size for relative brightness. Only "
+                         "used when the loaded classifier was fit with "
+                         "--brightness rel; defaults to the detector's tile "
+                         "size, which is the scale its training chips were cut "
+                         "at.")
     ap.add_argument("--season", default="annual",
                     choices=sorted(flux_rates.SEASONS))
     ap.add_argument("--surveyed-area-m2", type=float, default=None,
@@ -570,7 +752,9 @@ def main(argv=None):
         surveyed_area_m2=args.surveyed_area_m2, upstream=upstream,
         source=source, artifacts_dir=args.artifacts_dir, refit=args.refit,
         seed=args.seed, decision_rule=args.decision_rule,
-        overcall_penalty=args.overcall_penalty)
+        overcall_penalty=args.overcall_penalty,
+        max_span_m=args.max_span_m or None, min_shape=args.min_shape,
+        brightness_cell_m=args.brightness_cell_m)
 
 
 if __name__ == "__main__":
