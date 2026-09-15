@@ -80,19 +80,34 @@ def _hash_inputs(paths) -> dict:
 
 def build(out_dir: str | None = None, seed: int = 42,
           labeling_dir: str | None = None,
-          brightness: str | None = None) -> dict:
+          brightness: str | None = None,
+          group_threshold: float | None = None) -> dict:
     """Fit both models once and write them plus the manifest. Returns the manifest.
 
     `brightness` selects the classifier's brightness convention and is recorded
     in the manifest, because the runner has to re-apply the same one. See
     tools/classify/brightness.py for why that matters and what the two modes
     measure.
+
+    `group_threshold` is the grouper's P(same) operating point. It defaults to
+    `postproc.GROUP_THR` and is RECORDED rather than merely referenced: it is
+    the one grouper knob that changes the seep COUNT, and flux is count-based
+    (train_grouper measures thr 0.5 at bias -160, 0.6 at -25, 0.7 at +150).
+    Left as a bare module constant, editing it would silently re-point every
+    artifact already on disk at a different operating point, and an old flux
+    number could not be reproduced from its artifact alone.
     """
     from tools.classify.fit_classifier import (DEFAULT_BRIGHTNESS, LABELERS,
                                                default_labeling_dir,
                                                fit_deploy_model)
     from tools.grouping import train_grouper as tg
     from tools.grouping.deploy_grouper import train_model
+    # Local, like the imports above: postproc imports THIS module at module
+    # level, so a top-level import here would be circular.
+    from tools.deploy.postproc import GROUP_THR
+
+    if group_threshold is None:
+        group_threshold = GROUP_THR
 
     out_dir = out_dir or default_out_dir()
     labeling_dir = labeling_dir or default_labeling_dir()
@@ -128,7 +143,7 @@ def build(out_dir: str | None = None, seed: int = 42,
         "checkpoint": os.path.abspath(CANONICAL_CHECKPOINT_RELPATH),
         "grouper": {
             "file": GROUPER_FILE,
-            "group_threshold": None,   # postproc.GROUP_THR owns the op point
+            "group_threshold": float(group_threshold),
             **grouper_info,
         },
         "classifier": {"file": CLASSIFIER_FILE, **classifier_info},
@@ -235,9 +250,14 @@ def main(argv=None):
     ap.add_argument("--brightness", default=None, choices=("abs", "rel"),
                     help="classifier brightness convention; recorded in the "
                          "manifest and re-applied by the runner")
+    ap.add_argument("--group-threshold", type=float, default=None,
+                    help="grouper P(same) operating point to record "
+                         "(default: postproc.GROUP_THR). Pick it on the "
+                         "seep-count bias from tools.grouping.train_grouper, "
+                         "not by eye on a lake total.")
     args = ap.parse_args(argv)
     build(out_dir=args.out_dir, seed=args.seed, labeling_dir=args.labeling_dir,
-          brightness=args.brightness)
+          brightness=args.brightness, group_threshold=args.group_threshold)
 
 
 if __name__ == "__main__":

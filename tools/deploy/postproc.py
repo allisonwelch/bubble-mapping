@@ -503,6 +503,24 @@ def _classifier_brightness(model_prov: dict) -> str:
     return mode
 
 
+def _grouper_threshold(model_prov: dict) -> float:
+    """The P(same) operating point the loaded grouper was versioned with.
+
+    Artifacts built before 2026-09-15 record `null` here, because the threshold
+    used to live only in `GROUP_THR`. Those fall back to the constant, which is
+    what they were deployed at -- but it is announced, since the threshold moves
+    the seep count and the count is the flux.
+    """
+    info = (model_prov or {}).get("grouper") or {}
+    thr = info.get("group_threshold")
+    if thr is None:
+        print(f"[group] artifact records no group_threshold; using the module "
+              f"default {GROUP_THR}. Rebuild with tools.deploy.build_artifacts "
+              f"to version it alongside the model.")
+        return GROUP_THR
+    return float(thr)
+
+
 def _default_brightness_cell_m(upstream: dict) -> float:
     """Neighbourhood size for ranking, in metres.
 
@@ -515,7 +533,7 @@ def _default_brightness_cell_m(upstream: dict) -> float:
     return float(grid.get("tile_m") or _brightness.DEFAULT_CELL_M)
 
 
-def run(bubbles, out_dir, labeling_dir=None, thr=GROUP_THR, cap=AGGLOM_CAP_M,
+def run(bubbles, out_dir, labeling_dir=None, thr=None, cap=AGGLOM_CAP_M,
         season="annual", surveyed_area_m2=None, upstream=None, progress=True,
         source=None, label=None, artifacts_dir=None, refit=False, seed=42,
         decision_rule=DEFAULT_DECISION_RULE,
@@ -533,6 +551,10 @@ def run(bubbles, out_dir, labeling_dir=None, thr=GROUP_THR, cap=AGGLOM_CAP_M,
     It supplies the surveyed area unless `surveyed_area_m2` overrides it, and
     it is merged into the metadata stamped onto the outputs, so seeps.gpkg
     records the checkpoint and lake polygon it ultimately came from.
+
+    `thr=None` means "use the operating point recorded in the artifact", the
+    same way `surveyed_area_m2=None` means "use the one recorded upstream". An
+    explicit value still wins, which is what makes a threshold sweep possible.
     """
     upstream = dict(upstream or {})
     if surveyed_area_m2 is None:
@@ -555,6 +577,8 @@ def run(bubbles, out_dir, labeling_dir=None, thr=GROUP_THR, cap=AGGLOM_CAP_M,
     grouper, classifier, model_prov = load_models(
         artifacts_dir=artifacts_dir, labeling_dir=labeling_dir, refit=refit,
         seed=seed)
+    if thr is None:
+        thr = _grouper_threshold(model_prov)
 
     bubbles = bubbles.reset_index(drop=True)
     n_in = len(bubbles)
@@ -716,7 +740,11 @@ def main(argv=None):
                     default=DEFAULT_OVERCALL_PENALTY,
                     help="only used by --decision-rule conservative "
                          "(default %(default)s)")
-    ap.add_argument("--thr", type=float, default=GROUP_THR)
+    ap.add_argument("--thr", type=float, default=None,
+                    help="grouper P(same) operating point. Default is whatever "
+                         "the artifact was built with; pass a value only to "
+                         "measure sensitivity, and report the spread rather "
+                         "than adopting the one that flatters the total.")
     ap.add_argument("--cap", type=float, default=AGGLOM_CAP_M)
     ap.add_argument("--max-span-m", type=float, default=SCREEN_MAX_SPAN_M,
                     help="drop single connected components wider than this "
