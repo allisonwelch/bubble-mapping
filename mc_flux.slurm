@@ -1,12 +1,19 @@
 #!/bin/bash
 #SBATCH --job-name=mc_flux
-#SBATCH --cpus-per-task=16
+#SBATCH --partition=t1small
+#SBATCH --ntasks=1
+#SBATCH --tasks-per-node=1
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=03:00:00
 #SBATCH --output=logs/mc_flux_%j.out
 #SBATCH --error=logs/mc_flux_%j.err
+#SBATCH --mail-user=amwelch3@alaska.edu
+#SBATCH --mail-type=END,FAIL
 
 set -euo pipefail
+
+module load slurm
 
 RUN_DIR=/home/amwelch3/bubble-mapping/data/deploy_out/Octopus_10212025_20260915
 PRECISION="${PRECISION:?set PRECISION to precision_lake_ice from bubble_level_summary.csv}"
