@@ -22,7 +22,12 @@ cd ~/bubble-mapping
 
 IMAGE=${IMAGE:-/home/amwelch3/bubble-mapping/data/training_images/AE/Octopus_10212025_thmrgb_duetT_WholeLake_post_cog_rectified.tif}
 LAKE=${LAKE:-/home/amwelch3/bubble-mapping/data/geopackages/digitized_shoreline_Octopus_rough.gpkg}
-OUT_DIR=${OUT_DIR:-/home/amwelch3/bubble-mapping/data/deploy_out/Octopus_10212025_20260914}
+DEPLOY_ROOT=${DEPLOY_ROOT:-/home/amwelch3/bubble-mapping/data/deploy_out}
+IMAGE_STEM=$(basename "$IMAGE")
+IMAGE_STEM=${IMAGE_STEM%.*}
+LAKE_TAG=$(printf '%s' "$IMAGE_STEM" | sed -E 's/^([^_]+_[0-9]{6,8}).*/\1/')
+RUN_NAME=${RUN_NAME:-${LAKE_TAG}_$(date +%Y%m%d)}
+OUT_DIR=${OUT_DIR:-$DEPLOY_ROOT/$RUN_NAME}
 EXTRA=${EXTRA:-}
 
 CKPT_DIR=data/models/SWIN/AE/20260428-1537_SWINxAE_continued
