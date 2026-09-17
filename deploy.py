@@ -122,6 +122,29 @@ def build_parser():
                           "(only used with --refit)")
 
     # ---------------------------------------------------------------- #
+    # CRACK SCREEN -- ice cracks detected as one long connected component.
+    # ---------------------------------------------------------------- #
+    # All three gates must fire for a component to be dropped, and all three
+    # defaults come from the 2429 hand-measured field seeps, not from a lake
+    # total. See tools/deploy/postproc.py for why elongation is measured
+    # separately from roughness.
+    scr = ap.add_argument_group("crack screen")
+    scr.add_argument("--max-span-m", type=float,
+                     default=postproc_mod.SCREEN_MAX_SPAN_M,
+                     help="minimum rotated rectangle major axis, metres "
+                          "(default %(default)s, the largest ever measured). "
+                          "Pass 0 to disable the screen entirely.")
+    scr.add_argument("--min-aspect", type=float,
+                     default=postproc_mod.SCREEN_MIN_ASPECT,
+                     help="major/minor of that rectangle (default %(default)s; "
+                          "0.5%% of field seeps reach it)")
+    scr.add_argument("--min-shape", type=float,
+                     default=postproc_mod.SCREEN_MIN_SHAPE,
+                     help="perimeter^2/(4 pi area), a roughness measure "
+                          "(default %(default)s; a circle is 1, real bubbles "
+                          "~2). Elongation is --min-aspect, not this.")
+
+    # ---------------------------------------------------------------- #
     # DECISION RULE -- how a class posterior becomes an A/B/C label.
     # ---------------------------------------------------------------- #
     # Separated from the model on purpose: the forest emits a posterior, and
@@ -219,7 +242,9 @@ def main(argv=None):
             upstream=info or upstream, source=source, label=args.label,
             artifacts_dir=args.artifacts_dir, refit=args.refit, seed=args.seed,
             decision_rule=args.decision_rule,
-            overcall_penalty=args.overcall_penalty)
+            overcall_penalty=args.overcall_penalty,
+            max_span_m=args.max_span_m or None, min_aspect=args.min_aspect,
+            min_shape=args.min_shape)
 
     print(f"\n[deploy] done -> {os.path.abspath(args.out_dir)}")
 

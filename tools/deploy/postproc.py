@@ -66,21 +66,33 @@ GROUP_THR = 0.6   # RF P(same) operating point, per deploy_grouper
 # The diameter cap constrains MERGES -- the span of a cluster the grouper is
 # about to form. It says nothing about a single connected component, so one
 # ice crack detected as one long blob sails through it untouched. On the
-# 2026-09-14 lake run every seep wider than 3 m was a single CC, and 212 of the
-# 219 CCs wider than the field maximum were long and thin.
+# 2026-09-14 lake run every seep wider than 3 m was a single CC, and most CCs
+# wider than the field maximum were long and thin.
 #
-# Both thresholds are anchored, not tuned:
-#   span   1.14 m is the largest seep envelope in any of the 8 field workbooks
-#          (tools/flux/field_reference). A single blob wider than the biggest
-#          seep anyone ever measured is not a seep.
-#   shape  perimeter^2 / (4 pi area): 1 for a circle, higher the more
-#          convoluted. Real bubbles come out near 2; cracks run past 4.
+# THREE gates, and all three must fire. The first version used span and shape
+# only, and shape alone does not mean "skinny": perimeter^2/(4 pi area) is a
+# ROUGHNESS measure, so a compact rosette of touching bubbles scores as high as
+# a crack. On the 2026-09-15 run, 142 of the 207 dropped components were under
+# 2.5:1 elongation -- real bubble clusters the detector merged, thrown away for
+# being ragged. Elongation is now measured directly and screening is a joint
+# condition, so a component has to be long AND narrow AND ragged to go.
 #
-# BOTH must fire. Span alone would also drop the handful of wide-but-solid
-# blobs, which are likelier to be real features the detector merged than
-# cracks -- those are written to the screened file flagged `oversized` for
-# inspection rather than silently binned.
-SCREEN_MAX_SPAN_M = field_reference.MAX_SEEP_SPAN_M
+# Every threshold is anchored to the 2429 hand-measured field seeps in
+# tools/flux/field_reference, not tuned against a flux total:
+#   span    1.30 m, the largest major axis ever recorded. Measured the same way
+#           on both sides: longest side of the minimum rotated rectangle.
+#   aspect  4.0, major/minor of that rectangle. 0.5% of field seeps reach it,
+#           and no field seep is both over 1.30 m and over 4:1.
+#   shape   4.0, perimeter^2/(4 pi area): 1 for a circle, higher the more
+#           convoluted. Real bubbles come out near 2; cracks run past 4. Kept
+#           as a third gate so a long, narrow, SMOOTH feature survives to be
+#           looked at rather than assumed to be ice.
+#
+# Components over the span limit that fail either other gate are kept and
+# flagged `oversized_kept`, on the same reasoning: a wide but solid or smooth
+# blob is likelier to be a real feature the detector merged than a crack.
+SCREEN_MAX_SPAN_M = field_reference.MAX_SEEP_MAJOR_AXIS_M
+SCREEN_MIN_ASPECT = field_reference.MAX_SEEP_ASPECT
 SCREEN_MIN_SHAPE = 4.0
 
 
@@ -148,67 +160,82 @@ def load_from_pred_dir(pred_dir: str):
 # --------------------------------------------------------------------------- #
 # screening
 # --------------------------------------------------------------------------- #
-def _major_axis_m(geom) -> float:
-    """Longest side of the minimum rotated rectangle -- a shape's true width.
+def _mrr_axes_m(geom) -> tuple[float, float]:
+    """(major, minor) side of the minimum rotated rectangle, in metres.
 
-    Not the equivalent-circle diameter, which hides exactly the case this
-    screen is for: a 3 m crack with a small area reads as a 10 cm circle.
+    The major axis is a shape's true width, not the equivalent-circle diameter,
+    which hides exactly the case this screen is for: a 3 m crack with a small
+    area reads as a 10 cm circle. Their ratio is elongation, which is what
+    separates a crack from a ragged cluster of real bubbles.
     """
     mrr = geom.minimum_rotated_rectangle
     ring = getattr(mrr, "exterior", None)
     if ring is None:                       # degenerate: a point or a line
-        return float(mrr.length)
+        return float(mrr.length), 0.0
     xs, ys = ring.coords.xy
-    return max(float(np.hypot(xs[i + 1] - xs[i], ys[i + 1] - ys[i]))
-               for i in range(4))
+    sides = [float(np.hypot(xs[i + 1] - xs[i], ys[i + 1] - ys[i]))
+             for i in range(4)]
+    return max(sides), min(sides)
 
 
 def screen_bubbles(bubbles, max_span_m=SCREEN_MAX_SPAN_M,
-                   min_shape=SCREEN_MIN_SHAPE, progress=True):
+                   min_aspect=SCREEN_MIN_ASPECT, min_shape=SCREEN_MIN_SHAPE,
+                   progress=True):
     """Drop crack-like connected components. Returns (kept, dropped).
 
-    `dropped` carries a `screen_reason` column and is written out so the screen
-    can be eyeballed in QGIS -- a screen nobody can audit is a screen nobody
-    should trust. Bubbles over the span limit that are NOT crack-shaped are
-    kept and flagged `oversized`, not removed.
+    A component goes only if it clears all three gates -- longer than
+    `max_span_m`, narrower than 1:`min_aspect`, and rougher than `min_shape`.
+    Anything that clears the span gate alone is KEPT and flagged
+    `oversized_kept`, so a wide real feature stays in the flux.
+
+    `dropped` carries `span_m`, `aspect`, `shape_index` and `screen_reason`,
+    and is written out so the screen can be eyeballed in QGIS -- a screen
+    nobody can audit is a screen nobody should trust.
     """
     if max_span_m is None:
         return bubbles, bubbles.iloc[:0].copy()
 
-    span = np.array([_major_axis_m(g) for g in
+    axes = np.array([_mrr_axes_m(g) for g in
                      tqdm(bubbles.geometry.values, desc="screen",
                           disable=not progress)])
+    span, minor = axes[:, 0], axes[:, 1]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        aspect = np.where(minor > 0, span / minor, np.inf)
     area = bubbles["area_m2"].to_numpy(dtype=float)
     perim = bubbles["perim_m"].to_numpy(dtype=float)
     with np.errstate(divide="ignore", invalid="ignore"):
         shape = np.where(area > 0, perim ** 2 / (4 * np.pi * area), np.inf)
 
     wide = span > max_span_m
-    crack = wide & (shape >= min_shape)
+    crack = wide & (aspect >= min_aspect) & (shape >= min_shape)
+    flagged = wide & ~crack
 
-    dropped = bubbles[crack].copy()
-    dropped["span_m"] = span[crack]
-    dropped["shape_index"] = shape[crack]
-    dropped["screen_reason"] = "crack"
+    def _annotate(mask, reason):
+        out = bubbles[mask].copy()
+        out["span_m"] = span[mask]
+        out["aspect"] = aspect[mask]
+        out["shape_index"] = shape[mask]
+        out["screen_reason"] = reason
+        return out
 
-    oversized = bubbles[wide & ~crack].copy()
-    if len(oversized):
-        oversized["span_m"] = span[wide & ~crack]
-        oversized["shape_index"] = shape[wide & ~crack]
-        oversized["screen_reason"] = "oversized_kept"
-        dropped = pd.concat([dropped, oversized], ignore_index=True)
+    dropped = _annotate(crack, "crack")
+    if flagged.any():
+        dropped = pd.concat([dropped, _annotate(flagged, "oversized_kept")],
+                            ignore_index=True)
 
     kept = bubbles[~crack].reset_index(drop=True)
     print(f"[screen] {int(crack.sum())} crack-like bubbles removed "
-          f"(span > {max_span_m} m and shape >= {min_shape}); "
-          f"{int((wide & ~crack).sum())} wide but solid kept and flagged")
+          f"(span > {max_span_m} m AND aspect >= {min_aspect} AND "
+          f"shape >= {min_shape}); {int(flagged.sum())} wide but not crack-like "
+          f"kept and flagged")
     return kept, dropped
 
 
 # --------------------------------------------------------------------------- #
 # grouping
 # --------------------------------------------------------------------------- #
-def group_bubbles(clf, bubbles, thr=GROUP_THR, cap=AGGLOM_CAP_M, progress=True):
+def group_bubbles(clf, bubbles, thr=GROUP_THR, cap=AGGLOM_CAP_M, progress=True,
+                  edge_rng=None):
     """Assign `seep_group_id` within each `image`, anchor-id convention.
 
     Candidate pairs are generated per image only, so cross-image id reuse can
@@ -219,6 +246,12 @@ def group_bubbles(clf, bubbles, thr=GROUP_THR, cap=AGGLOM_CAP_M, progress=True):
     The diameter cap is enforced (`constrained_cluster`): plain connected
     components let chains of short edges bridge into runaway seeps, and flux is
     count-based, so one runaway seep is a real error in the total.
+
+    `edge_rng` is the Monte Carlo hook (`tools.deploy.mc_flux`). With a
+    Generator, each candidate edge is kept with probability P(same) instead of
+    being thresholded at `thr`, which turns one grouping into a sample from the
+    grouper's own posterior. Without it -- the deploy path -- the threshold
+    applies and the result is bit-identical to before this parameter existed.
     """
     # Positional throughout. The previous version wrote via
     # `sgid.iloc[sub.index[m]]`, mixing index LABELS into a positional setter:
@@ -241,7 +274,8 @@ def group_bubbles(clf, bubbles, thr=GROUP_THR, cap=AGGLOM_CAP_M, progress=True):
         if len(pp) == 0:
             continue
         proba = clf.predict_proba(feat[PAIR_FEATURES].to_numpy(float))[:, 1]
-        keep = proba >= thr
+        keep = (proba >= thr if edge_rng is None
+                else edge_rng.random(len(proba)) < proba)
         comp = constrained_cluster(len(sub), pp[keep], proba[keep],
                                    np.column_stack([fx, fy]), cap)
         ids = sub["bubble_id"].to_numpy(np.int64)
@@ -538,8 +572,8 @@ def run(bubbles, out_dir, labeling_dir=None, thr=None, cap=AGGLOM_CAP_M,
         source=None, label=None, artifacts_dir=None, refit=False, seed=42,
         decision_rule=DEFAULT_DECISION_RULE,
         overcall_penalty=DEFAULT_OVERCALL_PENALTY,
-        max_span_m=SCREEN_MAX_SPAN_M, min_shape=SCREEN_MIN_SHAPE,
-        brightness_cell_m=None):
+        max_span_m=SCREEN_MAX_SPAN_M, min_aspect=SCREEN_MIN_ASPECT,
+        min_shape=SCREEN_MIN_SHAPE, brightness_cell_m=None):
     """Group -> dissolve -> classify -> flux. Returns (seeps, table, per_image).
 
     Both models are loaded frozen from disk (`tools.deploy.build_artifacts`);
@@ -585,6 +619,7 @@ def run(bubbles, out_dir, labeling_dir=None, thr=None, cap=AGGLOM_CAP_M,
     # Screen BEFORE grouping: a crack left in is not just a bad seep of its own,
     # it is also a pairing candidate that can pull real bubbles into itself.
     bubbles, screened = screen_bubbles(bubbles, max_span_m=max_span_m,
+                                       min_aspect=min_aspect,
                                        min_shape=min_shape, progress=progress)
     bubbles = bubbles.reset_index(drop=True)
     bubbles["seep_group_id"] = group_bubbles(grouper, bubbles, thr=thr, cap=cap,
@@ -650,6 +685,7 @@ def run(bubbles, out_dir, labeling_dir=None, thr=None, cap=AGGLOM_CAP_M,
         "agglom_cap_m": cap,
         "season": season,
         "screen_max_span_m": max_span_m,
+        "screen_min_aspect": min_aspect,
         "screen_min_shape": min_shape,
         "n_bubbles_in": int(n_in),
         "n_bubbles_screened": int((screened["screen_reason"] == "crack").sum())
@@ -747,14 +783,19 @@ def main(argv=None):
                          "than adopting the one that flatters the total.")
     ap.add_argument("--cap", type=float, default=AGGLOM_CAP_M)
     ap.add_argument("--max-span-m", type=float, default=SCREEN_MAX_SPAN_M,
-                    help="drop single connected components wider than this "
-                         "AND crack-shaped. Default %(default)s m is the "
-                         "largest seep envelope in the field workbooks, not a "
+                    help="drop single connected components longer than this "
+                         "AND elongated AND ragged. Default %(default)s m is "
+                         "the largest major axis in the field workbooks, not a "
                          "tuned value. Pass 0 to disable the screen.")
+    ap.add_argument("--min-aspect", type=float, default=SCREEN_MIN_ASPECT,
+                    help="major/minor of the minimum rotated rectangle above "
+                         "which a long blob counts as a crack (default "
+                         "%(default)s; 0.5%% of field seeps reach it)")
     ap.add_argument("--min-shape", type=float, default=SCREEN_MIN_SHAPE,
-                    help="perimeter^2/(4 pi area) above which a wide blob "
+                    help="perimeter^2/(4 pi area) above which a long blob "
                          "counts as a crack (default %(default)s; a circle "
-                         "is 1, real bubbles ~2)")
+                         "is 1, real bubbles ~2). Roughness only -- it does "
+                         "NOT measure elongation, which is --min-aspect")
     ap.add_argument("--brightness-cell-m", type=float, default=None,
                     help="neighbourhood size for relative brightness. Only "
                          "used when the loaded classifier was fit with "
@@ -781,8 +822,8 @@ def main(argv=None):
         source=source, artifacts_dir=args.artifacts_dir, refit=args.refit,
         seed=args.seed, decision_rule=args.decision_rule,
         overcall_penalty=args.overcall_penalty,
-        max_span_m=args.max_span_m or None, min_shape=args.min_shape,
-        brightness_cell_m=args.brightness_cell_m)
+        max_span_m=args.max_span_m or None, min_aspect=args.min_aspect,
+        min_shape=args.min_shape, brightness_cell_m=args.brightness_cell_m)
 
 
 if __name__ == "__main__":

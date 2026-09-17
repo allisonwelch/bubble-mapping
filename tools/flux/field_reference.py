@@ -43,10 +43,28 @@ DENSITY_PER_M2 = {"transect_1m": 2.13, "transect_2m": 1.06}
 
 # Largest seep envelope in ANY of the 8 workbooks (all lakes, n=2785):
 # 1.02 m2, whose L/W diagonal is 1.14 m. Octopus's own maximum is 1.10 m.
-# A single connected component wider than this has no field counterpart at all,
-# which is what makes it a defensible screening threshold rather than a knob.
 MAX_SEEP_SPAN_M = 1.14
 MAX_SEEP_AREA_M2 = 1.02
+
+# The screening anchors, over the 2429 whole (non-partial, non-hotspot) a/b/c
+# seeps that carry both an L and a W. These measure the SAME quantities the
+# crack screen computes off a connected component's minimum rotated rectangle,
+# which MAX_SEEP_SPAN_M does not: 1.14 m is a DIAGONAL, and a rectangle's
+# rotated-rectangle major axis is max(L, W), never the diagonal. Screening a
+# major axis against a diagonal is the stricter of the two comparisons by
+# accident rather than by argument.
+#
+#   major axis   max(L, W). The largest ever recorded is 1.30 m; 7 seeps exceed
+#                1.14 m, 0 exceed 1.30 m.
+#   aspect       max(L, W) / min(L, W). The 99th percentile is 3.0 and the
+#                99.5th is 3.5; 12 of 2429 seeps (0.5%) reach 4.0.
+#
+# The pair is what carries the argument: NO field seep is both longer than
+# 1.30 m and more elongated than 4:1. A connected component that is both has no
+# counterpart in 2429 hand-measured seeps.
+MAX_SEEP_MAJOR_AXIS_M = 1.30
+MAX_SEEP_ASPECT = 4.0
+N_SIZED_FIELD_SEEPS = 2429
 
 # Smallest L or W ever recorded, i.e. the field's own resolution floor.
 MIN_RECORDED_DIM_M = 0.05
