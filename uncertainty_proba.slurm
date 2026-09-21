@@ -9,7 +9,7 @@
 #SBATCH --output=/home/amwelch3/bubble-mapping/logs/unc_proba_%j.out
 #SBATCH --error=/home/amwelch3/bubble-mapping/logs/unc_proba_%j.err
 #SBATCH --mail-user=amwelch3@alaska.edu
-#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-type=BEGIN,END,FAIL
 
 set -euo pipefail
 
