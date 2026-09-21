@@ -5,7 +5,7 @@
 #SBATCH --tasks-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
-#SBATCH --time=08:00:00
+#SBATCH --time=02:30:00
 #SBATCH --output=/home/amwelch3/bubble-mapping/logs/unc_labels_%j.out
 #SBATCH --error=/home/amwelch3/bubble-mapping/logs/unc_labels_%j.err
 #SBATCH --mail-user=amwelch3@alaska.edu
