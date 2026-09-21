@@ -20,15 +20,21 @@ input pack, is stamped into `run_info_postproc.json` and into the output gpkgs.
 
 The dissolve protocol is not negotiable: most of the classifier's features come
 from the dissolve, and it was trained on rows built by
-`fit_classifier.dissolve_to_seeps`. `dissolve_bubbles_to_seeps` below mirrors
+`fit_classifier.dissolve_to_seeps`. `chain.dissolve_bubbles_to_seeps` mirrors
 that term for term. If the two drift, the classifier is being asked about a
 feature distribution it never saw, and the class balance -- which is the flux --
 shifts silently. Change one, change both.
 
+THE CHAIN ITSELF LIVES IN `tools.deploy.chain`. This module loads the
+inputs, calls `chain.run_chain` once, and writes the outputs. The uncertainty
+scripts call the same function N times with sampling switched on, so the point
+estimate and the draws can never drift apart -- which they did, silently, when
+the chain was written out three times.
+
 The reported interval covers the published per-class rate uncertainty and
-nothing else. Detector, grouper and classifier error have no closed form here
-and need the Monte Carlo chain: this runner called N times with sampling
-switched on. The interface is built for it; the sampling is not written yet.
+nothing else. For the pipeline terms, run `tools.deploy.uncertainty_labels`
+(hard labels drive the total) or `tools.deploy.uncertainty_proba` (the class
+posterior does).
 """
 from __future__ import annotations
 
@@ -37,63 +43,25 @@ import json
 import os
 import time
 
-import numpy as np
 import pandas as pd
-from shapely.ops import unary_union
-from tqdm import tqdm
 
 import sklearn
 
-from tools.classify import brightness as _brightness
-from tools.classify.fit_classifier import (CLASSES,
-                                           FEATURES as CLASS_FEATURES,
-                                           decide_with_cost)
+from tools.classify.fit_classifier import CLASSES
 from tools.deploy import build_artifacts, runinfo
+from tools.deploy.chain import (  # noqa: F401  (re-exported for callers)
+    DECISION_RULES, DEFAULT_DECISION_RULE, DEFAULT_OVERCALL_PENALTY, GROUP_THR,
+    SCREEN_MAX_SPAN_M, SCREEN_MIN_ASPECT, SCREEN_MIN_SHAPE, ChainParams,
+    _classifier_brightness, _default_brightness_cell_m, _grouper_threshold,
+    classify_seeps, dissolve_bubbles_to_seeps, group_bubbles, resolve_params,
+    run_chain, screen_bubbles)
 from tools.flux import field_reference, rates as flux_rates
-from tools.grouping.deploy_grouper import _pair_features, constrained_cluster
-from tools.grouping.train_grouper import AGGLOM_CAP_M, FEATURES as PAIR_FEATURES
+from tools.grouping.train_grouper import AGGLOM_CAP_M
 
 try:
     import geopandas as gpd
 except ImportError:  # pragma: no cover
     gpd = None
-
-GROUP_THR = 0.6   # RF P(same) operating point, per deploy_grouper
-
-# --------------------------------------------------------------------------- #
-# THE CRACK SCREEN
-# --------------------------------------------------------------------------- #
-# The diameter cap constrains MERGES -- the span of a cluster the grouper is
-# about to form. It says nothing about a single connected component, so one
-# ice crack detected as one long blob sails through it untouched. On the
-# 2026-09-14 lake run every seep wider than 3 m was a single CC, and most CCs
-# wider than the field maximum were long and thin.
-#
-# THREE gates, and all three must fire. The first version used span and shape
-# only, and shape alone does not mean "skinny": perimeter^2/(4 pi area) is a
-# ROUGHNESS measure, so a compact rosette of touching bubbles scores as high as
-# a crack. On the 2026-09-15 run, 142 of the 207 dropped components were under
-# 2.5:1 elongation -- real bubble clusters the detector merged, thrown away for
-# being ragged. Elongation is now measured directly and screening is a joint
-# condition, so a component has to be long AND narrow AND ragged to go.
-#
-# Every threshold is anchored to the 2429 hand-measured field seeps in
-# tools/flux/field_reference, not tuned against a flux total:
-#   span    1.30 m, the largest major axis ever recorded. Measured the same way
-#           on both sides: longest side of the minimum rotated rectangle.
-#   aspect  4.0, major/minor of that rectangle. 0.5% of field seeps reach it,
-#           and no field seep is both over 1.30 m and over 4:1.
-#   shape   4.0, perimeter^2/(4 pi area): 1 for a circle, higher the more
-#           convoluted. Real bubbles come out near 2; cracks run past 4. Kept
-#           as a third gate so a long, narrow, SMOOTH feature survives to be
-#           looked at rather than assumed to be ice.
-#
-# Components over the span limit that fail either other gate are kept and
-# flagged `oversized_kept`, on the same reasoning: a wide but solid or smooth
-# blob is likelier to be a real feature the detector merged than a crack.
-SCREEN_MAX_SPAN_M = field_reference.MAX_SEEP_MAJOR_AXIS_M
-SCREEN_MIN_ASPECT = field_reference.MAX_SEEP_ASPECT
-SCREEN_MIN_SHAPE = 4.0
 
 
 # --------------------------------------------------------------------------- #
@@ -158,233 +126,8 @@ def load_from_pred_dir(pred_dir: str):
 
 
 # --------------------------------------------------------------------------- #
-# screening
-# --------------------------------------------------------------------------- #
-def _mrr_axes_m(geom) -> tuple[float, float]:
-    """(major, minor) side of the minimum rotated rectangle, in metres.
-
-    The major axis is a shape's true width, not the equivalent-circle diameter,
-    which hides exactly the case this screen is for: a 3 m crack with a small
-    area reads as a 10 cm circle. Their ratio is elongation, which is what
-    separates a crack from a ragged cluster of real bubbles.
-    """
-    mrr = geom.minimum_rotated_rectangle
-    ring = getattr(mrr, "exterior", None)
-    if ring is None:                       # degenerate: a point or a line
-        return float(mrr.length), 0.0
-    xs, ys = ring.coords.xy
-    sides = [float(np.hypot(xs[i + 1] - xs[i], ys[i + 1] - ys[i]))
-             for i in range(4)]
-    return max(sides), min(sides)
-
-
-def screen_bubbles(bubbles, max_span_m=SCREEN_MAX_SPAN_M,
-                   min_aspect=SCREEN_MIN_ASPECT, min_shape=SCREEN_MIN_SHAPE,
-                   progress=True):
-    """Drop crack-like connected components. Returns (kept, dropped).
-
-    A component goes only if it clears all three gates -- longer than
-    `max_span_m`, narrower than 1:`min_aspect`, and rougher than `min_shape`.
-    Anything that clears the span gate alone is KEPT and flagged
-    `oversized_kept`, so a wide real feature stays in the flux.
-
-    `dropped` carries `span_m`, `aspect`, `shape_index` and `screen_reason`,
-    and is written out so the screen can be eyeballed in QGIS -- a screen
-    nobody can audit is a screen nobody should trust.
-    """
-    if max_span_m is None:
-        return bubbles, bubbles.iloc[:0].copy()
-
-    axes = np.array([_mrr_axes_m(g) for g in
-                     tqdm(bubbles.geometry.values, desc="screen",
-                          disable=not progress)])
-    span, minor = axes[:, 0], axes[:, 1]
-    with np.errstate(divide="ignore", invalid="ignore"):
-        aspect = np.where(minor > 0, span / minor, np.inf)
-    area = bubbles["area_m2"].to_numpy(dtype=float)
-    perim = bubbles["perim_m"].to_numpy(dtype=float)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        shape = np.where(area > 0, perim ** 2 / (4 * np.pi * area), np.inf)
-
-    wide = span > max_span_m
-    crack = wide & (aspect >= min_aspect) & (shape >= min_shape)
-    flagged = wide & ~crack
-
-    def _annotate(mask, reason):
-        out = bubbles[mask].copy()
-        out["span_m"] = span[mask]
-        out["aspect"] = aspect[mask]
-        out["shape_index"] = shape[mask]
-        out["screen_reason"] = reason
-        return out
-
-    dropped = _annotate(crack, "crack")
-    if flagged.any():
-        dropped = pd.concat([dropped, _annotate(flagged, "oversized_kept")],
-                            ignore_index=True)
-
-    kept = bubbles[~crack].reset_index(drop=True)
-    print(f"[screen] {int(crack.sum())} crack-like bubbles removed "
-          f"(span > {max_span_m} m AND aspect >= {min_aspect} AND "
-          f"shape >= {min_shape}); {int(flagged.sum())} wide but not crack-like "
-          f"kept and flagged")
-    return kept, dropped
-
-
-# --------------------------------------------------------------------------- #
-# grouping
-# --------------------------------------------------------------------------- #
-def group_bubbles(clf, bubbles, thr=GROUP_THR, cap=AGGLOM_CAP_M, progress=True,
-                  edge_rng=None):
-    """Assign `seep_group_id` within each `image`, anchor-id convention.
-
-    Candidate pairs are generated per image only, so cross-image id reuse can
-    never merge bubbles across chips. A whole lake is one image, so the
-    partition is the lake and a seep spanning a tile seam groups correctly --
-    the tile grid is deliberately not the grouping partition.
-
-    The diameter cap is enforced (`constrained_cluster`): plain connected
-    components let chains of short edges bridge into runaway seeps, and flux is
-    count-based, so one runaway seep is a real error in the total.
-
-    `edge_rng` is the Monte Carlo hook (`tools.deploy.mc_flux`). With a
-    Generator, each candidate edge is kept with probability P(same) instead of
-    being thresholded at `thr`, which turns one grouping into a sample from the
-    grouper's own posterior. Without it -- the deploy path -- the threshold
-    applies and the result is bit-identical to before this parameter existed.
-    """
-    # Positional throughout. The previous version wrote via
-    # `sgid.iloc[sub.index[m]]`, mixing index LABELS into a positional setter:
-    # it happened to be correct only because `run()` resets the index first,
-    # and on any other index it either raised or -- worse, when the labels were
-    # a permutation that happened to be in range -- silently assigned each
-    # group's id to the wrong bubbles.
-    sgid = bubbles["bubble_id"].astype(np.int64).to_numpy().copy()
-    pos_of = {lbl: i for i, lbl in enumerate(bubbles.index)}
-    n_multi = 0
-    groups = list(bubbles.groupby("image"))
-    for im, sub in tqdm(groups, desc="group", disable=not progress):
-        if len(sub) < 2:
-            continue
-        sub_pos = np.fromiter((pos_of[l] for l in sub.index), int, len(sub))
-        fx = sub["centroid_x_m"].to_numpy(float)
-        fy = sub["centroid_y_m"].to_numpy(float)
-        fa = sub["area_m2"].to_numpy(float)
-        pp, feat = _pair_features(sub, fx, fy, fa)
-        if len(pp) == 0:
-            continue
-        proba = clf.predict_proba(feat[PAIR_FEATURES].to_numpy(float))[:, 1]
-        keep = (proba >= thr if edge_rng is None
-                else edge_rng.random(len(proba)) < proba)
-        comp = constrained_cluster(len(sub), pp[keep], proba[keep],
-                                   np.column_stack([fx, fy]), cap)
-        ids = sub["bubble_id"].to_numpy(np.int64)
-        for c in np.unique(comp):
-            m = np.where(comp == c)[0]
-            sgid[sub_pos[m]] = int(ids[m].max())          # collision-safe anchor
-            if len(m) > 1:
-                n_multi += 1
-    sgid = pd.Series(sgid, index=bubbles.index, name="seep_group_id")
-    print(f"[group] {len(bubbles)} bubbles -> "
-          f"{bubbles.assign(_g=sgid).groupby(['image', '_g']).ngroups} seeps "
-          f"({n_multi} multi-bubble)")
-    return sgid
-
-
-# --------------------------------------------------------------------------- #
-# dissolve
-# --------------------------------------------------------------------------- #
-def dissolve_bubbles_to_seeps(bubbles, progress=True):
-    """One row per (image, seep_group_id): hull geometry + classifier features.
-
-    Mirrors `fit_classifier.dissolve_to_seeps` on every shared term -- hull of
-    the unary union, brightness weighted by member area_m2 -- minus the
-    labeler-only columns. Read that function before touching this one.
-    """
-    rows, geoms = [], []
-    keys = list(bubbles.groupby(["image", "seep_group_id"], sort=True))
-    for (img, gid), sub in tqdm(keys, desc="dissolve", disable=not progress):
-        geom = unary_union(sub.geometry.values)
-        hull = geom.convex_hull
-        w = sub["area_m2"].to_numpy(dtype=float)
-        w = w / w.sum() if w.sum() > 0 else np.full(len(w), 1.0 / len(w))
-        c = hull.centroid
-        rows.append({
-            "image": img,
-            "seep_group_id": int(gid),
-            "n_bubbles": len(sub),
-            "area_m2": float(geom.area),
-            "hull_area_m2": float(hull.area),
-            "perim_m": float(geom.length),
-            "centroid_x_m": float(c.x), "centroid_y_m": float(c.y),
-            "mean_R": float(np.dot(w, sub["mean_R"].to_numpy(dtype=float))),
-            "mean_G": float(np.dot(w, sub["mean_G"].to_numpy(dtype=float))),
-            "mean_B": float(np.dot(w, sub["mean_B"].to_numpy(dtype=float))),
-        })
-        geoms.append(hull)
-    seeps = gpd.GeoDataFrame(pd.DataFrame(rows), geometry=geoms,
-                             crs=bubbles.crs)
-    return seeps
-
-
-# --------------------------------------------------------------------------- #
 # classify + flux
 # --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-# THE DECISION RULE -- posterior -> class label
-# --------------------------------------------------------------------------- #
-# The forest emits a posterior; turning that into one label is a separate
-# choice, and it is the cheapest lever on the reported flux. Made explicit here
-# rather than left implicit inside `clf.predict`, so a run records which rule
-# produced its number.
-#
-#   argmax        the highest-posterior class. Bayes-optimal under 0/1 loss --
-#                 it treats calling a C an A exactly as badly as calling an A a
-#                 C. Flux does not: those cost 16 and 971 mg CH4/day.
-#   conservative  minimum expected cost over the ORDERED classes, with
-#                 over-calling penalised by `overcall_penalty`. Errs toward the
-#                 smaller class.
-#
-# Both use the same fitted forest, so switching needs no refit and no new
-# labels. Measured effect on the LOIO eval is in SECRET_CLAUDE.md section 3;
-# `--overcall-penalty 1.5` roughly halves the model's over-call bias while
-# improving accuracy, at the cost of a few C seeps' recall.
-DECISION_RULES = ("argmax", "conservative")
-DEFAULT_DECISION_RULE = "argmax"
-DEFAULT_OVERCALL_PENALTY = 1.5
-
-
-def classify_seeps(seeps, clf, decision_rule=DEFAULT_DECISION_RULE,
-                   overcall_penalty=DEFAULT_OVERCALL_PENALTY):
-    """Attach `class` and the per-class posterior columns.
-
-    `decision_rule` selects how the posterior becomes a label; the posterior
-    columns (`p_A` / `p_B` / `p_C`) are written either way, so a run can be
-    re-decided afterwards without re-running the forest.
-    """
-    if decision_rule not in DECISION_RULES:
-        raise ValueError(f"decision_rule must be one of {DECISION_RULES}, "
-                         f"got {decision_rule!r}")
-    X = seeps[CLASS_FEATURES].to_numpy(dtype=float)
-    seeps = seeps.copy()
-    proba = clf.predict_proba(X)
-    for i, c in enumerate(clf.classes_):
-        seeps[f"p_{c}"] = proba[:, i]
-
-    if decision_rule == "argmax":
-        seeps["class"] = clf.predict(X)
-    else:
-        # Reorder the posterior onto CLASSES, since clf.classes_ is only
-        # guaranteed sorted, not equal to CLASSES if a class went unseen.
-        cols = {c: i for i, c in enumerate(clf.classes_)}
-        p = np.zeros((len(X), len(CLASSES)), dtype=float)
-        for j, c in enumerate(CLASSES):
-            if c in cols:
-                p[:, j] = proba[:, cols[c]]
-        seeps["class"] = decide_with_cost(p, list(CLASSES), overcall_penalty)
-    return seeps
-
-
 def attach_flux(seeps, season="annual"):
     """Per-seep rate in mg CH4/day, from its class. Flux is count-based, so
     this column is a lookup, not a function of the seep's size."""
@@ -520,53 +263,6 @@ def load_models(artifacts_dir=None, labeling_dir=None, refit=False, seed=42):
     return grouper, classifier, prov
 
 
-def _classifier_brightness(model_prov: dict) -> str:
-    """Which brightness convention the loaded classifier was fit under.
-
-    Artifacts built before 2026-09-15 carry no such key. They were fit on
-    absolute brightness, so that is the right fallback -- but it is announced,
-    because silently guessing wrong would rescale every feature the forest
-    splits on and change the class balance, which IS the flux.
-    """
-    info = (model_prov or {}).get("classifier") or {}
-    mode = info.get("brightness")
-    if mode is None:
-        print("[classify] artifact predates the brightness key; assuming "
-              "'abs'. Rebuild with tools.deploy.build_artifacts to record it.")
-        return "abs"
-    return mode
-
-
-def _grouper_threshold(model_prov: dict) -> float:
-    """The P(same) operating point the loaded grouper was versioned with.
-
-    Artifacts built before 2026-09-15 record `null` here, because the threshold
-    used to live only in `GROUP_THR`. Those fall back to the constant, which is
-    what they were deployed at -- but it is announced, since the threshold moves
-    the seep count and the count is the flux.
-    """
-    info = (model_prov or {}).get("grouper") or {}
-    thr = info.get("group_threshold")
-    if thr is None:
-        print(f"[group] artifact records no group_threshold; using the module "
-              f"default {GROUP_THR}. Rebuild with tools.deploy.build_artifacts "
-              f"to version it alongside the model.")
-        return GROUP_THR
-    return float(thr)
-
-
-def _default_brightness_cell_m(upstream: dict) -> float:
-    """Neighbourhood size for ranking, in metres.
-
-    The detector's own tile size when the run metadata carries it, because that
-    is already the scale the imagery was normalized over and the scale the
-    classifier's training chips were cut at. Falls back to the module default
-    for a bubbles.gpkg that records no grid.
-    """
-    grid = (upstream or {}).get("grid") or {}
-    return float(grid.get("tile_m") or _brightness.DEFAULT_CELL_M)
-
-
 def run(bubbles, out_dir, labeling_dir=None, thr=None, cap=AGGLOM_CAP_M,
         season="annual", surveyed_area_m2=None, upstream=None, progress=True,
         source=None, label=None, artifacts_dir=None, refit=False, seed=42,
@@ -588,7 +284,8 @@ def run(bubbles, out_dir, labeling_dir=None, thr=None, cap=AGGLOM_CAP_M,
 
     `thr=None` means "use the operating point recorded in the artifact", the
     same way `surveyed_area_m2=None` means "use the one recorded upstream". An
-    explicit value still wins, which is what makes a threshold sweep possible.
+    explicit value still wins, which is what makes a threshold sweep possible,
+    and `group_threshold_source` in the run metadata records which happened.
     """
     upstream = dict(upstream or {})
     if surveyed_area_m2 is None:
@@ -611,37 +308,20 @@ def run(bubbles, out_dir, labeling_dir=None, thr=None, cap=AGGLOM_CAP_M,
     grouper, classifier, model_prov = load_models(
         artifacts_dir=artifacts_dir, labeling_dir=labeling_dir, refit=refit,
         seed=seed)
-    if thr is None:
-        thr = _grouper_threshold(model_prov)
+    params = resolve_params(
+        model_prov, upstream, thr=thr, cap=cap, decision_rule=decision_rule,
+        overcall_penalty=overcall_penalty, max_span_m=max_span_m,
+        min_aspect=min_aspect, min_shape=min_shape,
+        brightness_cell_m=brightness_cell_m)
+    print(f"[group] P(same) threshold {params.thr} ({params.thr_source})")
 
-    bubbles = bubbles.reset_index(drop=True)
-    n_in = len(bubbles)
-    # Screen BEFORE grouping: a crack left in is not just a bad seep of its own,
-    # it is also a pairing candidate that can pull real bubbles into itself.
-    bubbles, screened = screen_bubbles(bubbles, max_span_m=max_span_m,
-                                       min_aspect=min_aspect,
-                                       min_shape=min_shape, progress=progress)
-    bubbles = bubbles.reset_index(drop=True)
-    bubbles["seep_group_id"] = group_bubbles(grouper, bubbles, thr=thr, cap=cap,
-                                             progress=progress)
+    # One call, and it is the SAME call the uncertainty scripts make with
+    # sampling switched on. Nothing about the chain is re-implemented here.
+    res = run_chain(bubbles, grouper, classifier, params, progress=progress)
+    bubbles, screened, seeps = res.bubbles, res.screened, res.seeps
+    n_in = res.n_bubbles_in
 
-    seeps = dissolve_bubbles_to_seeps(bubbles, progress=progress)
-
-    # Re-apply whatever brightness convention the classifier was FIT under.
-    # Absolute values would be silently out of scale for a "rel" forest, so a
-    # missing key is an error rather than an assumption.
-    brightness_mode = _classifier_brightness(model_prov)
-    if brightness_mode != "abs":
-        cell_m = (brightness_cell_m if brightness_cell_m is not None
-                  else _default_brightness_cell_m(upstream))
-        print(f"[classify] brightness: {brightness_mode}, ranked within "
-              f"{cell_m} m cells of the {len(bubbles)} detected bubbles")
-        seeps = _brightness.relativize(seeps, bubbles, mode=brightness_mode,
-                                       cell_m=cell_m)
-
-    seeps = attach_flux(
-        classify_seeps(seeps, classifier, decision_rule=decision_rule,
-                       overcall_penalty=overcall_penalty), season=season)
+    seeps = attach_flux(seeps, season=season)
     rule_note = (f"{decision_rule}" if decision_rule == "argmax"
                  else f"{decision_rule} (overcall penalty {overcall_penalty})")
     print(f"[classify] decision rule: {rule_note}")
@@ -681,20 +361,17 @@ def run(bubbles, out_dir, labeling_dir=None, thr=None, cap=AGGLOM_CAP_M,
     info = {**upstream, **{
         "stage": "postproc",
         "source": source,
-        "group_threshold": thr,
-        "agglom_cap_m": cap,
+        "group_threshold": params.thr,
+        "group_threshold_source": params.thr_source,
+        "agglom_cap_m": params.cap,
         "season": season,
-        "screen_max_span_m": max_span_m,
-        "screen_min_aspect": min_aspect,
-        "screen_min_shape": min_shape,
+        "screen_max_span_m": params.max_span_m,
+        "screen_min_aspect": params.min_aspect,
+        "screen_min_shape": params.min_shape,
         "n_bubbles_in": int(n_in),
-        "n_bubbles_screened": int((screened["screen_reason"] == "crack").sum())
-                              if len(screened) else 0,
-        "brightness": brightness_mode,
-        "brightness_cell_m": (None if brightness_mode == "abs"
-                              else _default_brightness_cell_m(upstream)
-                              if brightness_cell_m is None
-                              else brightness_cell_m),
+        "n_bubbles_screened": res.n_screened,
+        "brightness": params.brightness_mode,
+        "brightness_cell_m": params.brightness_cell_m,
         "n_bubbles": int(len(bubbles)),
         "n_seeps": int(len(seeps)),
         "class_counts": {c: int((seeps["class"] == c).sum()) for c in CLASSES},
@@ -731,9 +408,10 @@ def _print_report(table, per_image, surveyed_area_m2, bench=None):
     print("\nper image:")
     print(per_image.to_string(index=False, float_format=lambda v: f"{v:,.0f}"))
     print("\nrate_std_err_pct is the PUBLISHED RATE uncertainty only. Detector, "
-          "grouper and\nclassifier error are not in it -- those need the Monte "
-          "Carlo chain, which is not\nwritten yet. Quote this as a point "
-          "estimate, with the surveyed area named.")
+          "grouper and\nclassifier error are not in it. For the pipeline terms "
+          "run tools.deploy.uncertainty_labels\nor tools.deploy.uncertainty_proba "
+          "against this run's bubbles.gpkg. Quote this as a\npoint estimate, "
+          "with the surveyed area named.")
 
     if bench is not None and len(bench):
         print("\n" + "=" * 72)

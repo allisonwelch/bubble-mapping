@@ -1,49 +1,50 @@
-# tools/deploy/mc_flux.py
-"""Monte Carlo error propagation for the count-based lake flux.
+# tools/archive/mc_flux.py
+"""ARCHIVED 2026-09-21. Superseded by tools/deploy/uncertainty_{labels,proba}.py.
 
-Runs the CPU half of the deploy chain N times with sampling switched on, then
-reports percentiles of the lake total. This is the chain `postproc` names in
-its docstring and does not implement: the point run reports the published rate
-uncertainty only, and this module adds the three pipeline terms around it.
+Kept for its lognormal rate draw and its shard/summarize plumbing, both of
+which were ported forward. Do not run it.
 
-Flux is count-based, so every upstream error reaches the total through an
-integer class count. Integers have no useful derivative, so there is no
-quadrature formula to write -- sampling the pipeline IS the propagation.
+TWO REASONS IT WAS RETIRED.
 
-Four sampled terms, each independently switchable through `--terms` so the
-variance decomposition is one flag rather than a code change:
+1. THE ANCHOR IS NOT A CONFIDENCE INTERVAL. `summarize` took the relative
+   spread from the sampled ensemble and applied it to a point estimate produced
+   by the thresholded chain -- `anchored_lo = point * (p2.5 / mc_median)`. That
+   is an interval for neither estimator: nothing sampled the uncertainty AROUND
+   the deploy estimator, and the interval was translated off the ensemble's own
+   centre. The docstring conceded it ("It does not correct the shift").
 
-    detector    thin the detected bubbles to the measured precision, and
-                optionally inject false negatives to the measured recall
-    grouper     keep each candidate edge with probability P(same) instead of
-                thresholding at the deploy operating point
-    classifier  draw each seep's class from the forest posterior instead of
-                taking argmax
-    rate        draw each class rate from a lognormal matched to the published
-                (mean, standard error)
+2. THREE OF THE FOUR TERMS SAMPLED A DIFFERENT ESTIMATOR, NOT A PERTURBATION OF
+   THE DEPLOYED ONE. Measured on the 2026-09-15 Octopus run at 500 draws, the
+   ensemble median sat at 57,806 seeps against the point estimate's 92,465
+   (-37.5%), class A -42.7%, class C +92.3%.
 
-Cost. The GPU stage does not re-run: this reads a finished `bubbles.gpkg` and
-resamples it on CPU. One draw costs about what `postproc.run` costs, minus the
-GeoPackage writes, which this module skips -- it keeps one summary row per
-draw and nothing else.
+     detector    thinning by (1 - precision) is a BIAS correction -- the count
+                 is systematically high -- applied one-sided, from a fixed
+                 scalar the loop never sampled. Most of the class-A deflation.
+     grouper     firing each edge at its own P(same) instead of thresholding.
+                 Merging is monotone under union-find, so it merges more every
+                 time, by construction.
+     classifier  posterior sampling reproduces the model's marginal; argmax
+                 deliberately does not. It also DISCARDED `decision_rule` and
+                 `overcall_penalty`, so under `conservative` the Monte Carlo
+                 perturbed a classifier the runner never deployed.
+     rate        correct, and carried forward unchanged.
 
-Reproducibility. Draw i uses seed `base_seed + offset + i`, so any single draw
-replays on its own and array tasks never share a stream.
+   A third consequence: `rate_only_sd` was the median of a per-draw column
+   computed on the SAMPLED counts, so the reported published-rate floor
+   described an ensemble the detector artifact had shrunk rather than the
+   published estimate.
 
-The reported interval is ANCHORED on the deploy point estimate: sampling a
-posterior is not the same question as thresholding it, so the ensemble median
-sits off the point estimate by a systematic amount. `--point` writes that
-estimate and `--summarize` takes only the interval WIDTH from the ensemble,
-reporting the shift beside it rather than hiding it. See `summarize`.
+The rule the replacements follow: every term is either an uncertainty or a
+bias, never both. An uncertainty is centred on the deploy estimate and sets the
+width. A bias moves the centre, or is stated as a bound, and never appears as
+width.
 
-    python -m tools.deploy.mc_flux --bubbles data/deploy_out/<run>/bubbles.gpkg \
-        --out-dir data/deploy_out/<run>/mc --point
-
-    python -m tools.deploy.mc_flux --bubbles data/deploy_out/<run>/bubbles.gpkg \
-        --out-dir data/deploy_out/<run>/mc --draws 20 --offset 0 \
-        --precision 0.## --terms detector,grouper,classifier,rate
-
-    python -m tools.deploy.mc_flux --summarize data/deploy_out/<run>/mc
+Superseded, too, by the fact that `build_seeps` and `point_estimate` here were
+a second and third copy of the chain that `postproc.run` also implemented. That
+duplication is what let the 2026-09-15 crack-screen change reach one copy and
+not the others, which surfaced as an unexplained 6% class-C gap. The chain now
+lives once, in tools/deploy/chain.py.
 """
 from __future__ import annotations
 

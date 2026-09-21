@@ -29,10 +29,25 @@ OUTPUTS in --out-dir
     flux_summary.csv       per-season totals and uncertainty terms
     flux_per_image.csv     per-source breakdown
 
-WHAT THE NUMBER IS
-A point estimate with the published per-class rate uncertainty, over a measured
+Produces a point estimate with the published per-class rate uncertainty, over a measured
 surveyed area. Every stage of the chain was validated in isolation; detector,
-grouper and classifier error are NOT in the interval. Treat it accordingly.
+grouper and classifier error are NOT in this interval.
+
+FOR AN ERROR BAR, run one of these against this run's bubbles.gpkg.
+Both are separate entry points, both are CPU-only, and both call the same
+`tools.deploy.chain.run_chain` this script does -- so their point estimate
+reproduces the number above exactly, by construction rather than by discipline.
+
+    tools.deploy.uncertainty_labels   the headline stays the label-based total
+                                      this script reports. Both forests' trees
+                                      are resampled and the rates drawn.
+    tools.deploy.uncertainty_proba    the headline becomes the posterior-based
+                                      total (sum of p_c, not the label count).
+                                      Labels still go in seeps.gpkg for mapping.
+                                      Adds a grouping-threshold sweep.
+
+Detector error is in neither, on purpose: its dominant part is a bias, so it is
+reported as a stated bound rather than as width.
 """
 from __future__ import annotations
 
@@ -97,8 +112,16 @@ def build_parser():
     # SENSITIVITY ANALYSIS, and for re-selecting an operating point after a
     # grouper retrain. Do not adjust them until a lake total looks right: that
     # is fitting a free parameter to the answer you are using it to test.
-    grp.add_argument("--thr", type=float, default=postproc_mod.GROUP_THR,
-                     help="grouper P(same seep) edge threshold (default %(default)s)")
+    # Default None, NOT the module constant. `postproc.run` reads None as "use
+    # the operating point versioned with the artifact"; passing the constant
+    # unconditionally made that lookup dead code on this entry point and live
+    # on every other one, so a rebuilt artifact would have silently changed the
+    # threshold everywhere except here. They agreed only because both read 0.6.
+    grp.add_argument("--thr", type=float, default=None,
+                     help="grouper P(same seep) edge threshold. Default is "
+                          "whatever the artifact was built with "
+                          f"(currently {postproc_mod.GROUP_THR} if the "
+                          "artifact predates the key)")
     grp.add_argument("--cap", type=float, default=AGGLOM_CAP_M,
                      help="max seep centroid span in metres (default %(default)s)")
     grp.add_argument("--season", default="annual",
