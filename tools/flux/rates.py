@@ -52,6 +52,105 @@ SEASON_N = {
 }
 
 
+# --------------------------------------------------------------------------- #
+# reporting units
+# --------------------------------------------------------------------------- #
+# Every flux figure in this repo is computed in mg CH4/day. Two derived units
+# are reported beside it, because a bare mg/day total is not comparable to
+# anything: per-area makes it comparable to another lake or another flight
+# date, and an annual mass makes it comparable to the published literature.
+DAYS_PER_YEAR = 365.0
+MG_PER_G = 1000.0
+
+# The column suffix every mg CH4/day quantity carries, which is how
+# `add_per_area_columns` finds them.
+PER_DAY_SUFFIX = "_mg_CH4_per_day"
+
+# How many days of a year each season's rate describes. ONLY THE ANNUAL RATE
+# COVERS A WHOLE YEAR, so only it can be integrated to one. Summer and winter
+# are per-day rates within a regime whose length the workbooks do not record,
+# and this module deliberately does not assume one -- multiplying either by 365
+# would report a year made entirely of that regime. Those rows get NaN in the
+# per-year column rather than a number that reads like an annual budget.
+SEASON_DAYS_PER_YEAR = {"annual": DAYS_PER_YEAR, "summer": None, "winter": None}
+
+
+def days_per_year(season="annual"):
+    """Days of the year this season's per-day rate describes, or None."""
+    season_rates(season)  # validates the name
+    return SEASON_DAYS_PER_YEAR.get(season)
+
+
+def per_area_units(value_mg_per_day, surveyed_area_m2, season="annual"):
+    """One mg CH4/day figure as (mg/m2/day, g/m2/year).
+
+    The conversion is linear and the surveyed area is a constant, so this
+    applies to a percentile, a standard error or a central estimate alike: a
+    2.5th percentile of the total is the 2.5th percentile of the density.
+
+    Both are NaN without a surveyed area, and the per-year figure is NaN for
+    any season but annual. See `SEASON_DAYS_PER_YEAR`.
+    """
+    if not surveyed_area_m2:
+        return float("nan"), float("nan")
+    density = float(value_mg_per_day) / float(surveyed_area_m2)
+    days = days_per_year(season)
+    if days is None:
+        return density, float("nan")
+    return density, density * days / MG_PER_G
+
+
+def add_per_area_columns(df, surveyed_area_m2, season=None,
+                         season_col="season", exclude=()):
+    """Add per-area twins for every mg CH4/day column in a table.
+
+    Each column named `*_mg_CH4_per_day` gains two siblings immediately to its
+    right:
+
+        *_mg_CH4_per_m2_per_day   the same figure over the surveyed area
+        *_g_CH4_per_m2_per_year   that density as an annual mass
+
+    Applying this to the whole table rather than to the central estimate alone
+    is the point: an interval reported in one unit and a point estimate
+    reported in another is how a reader ends up comparing two different
+    quantities.
+
+    Args:
+        df: any table whose flux columns carry the `_mg_CH4_per_day` suffix.
+        surveyed_area_m2: the measured denominator. Falsy leaves `df` unchanged,
+            so a missing area never becomes a NaN density that reads as zero.
+        season: season for the per-year conversion, used when `df` carries no
+            season column.
+        season_col: per-row season column, which takes precedence over `season`.
+        exclude: columns to leave alone. Pass the PER-SEEP published rates:
+            dividing one seep's rate by the whole lake area is meaningless.
+
+    Returns:
+        A new DataFrame. The source columns keep their names and values.
+    """
+    if not surveyed_area_m2:
+        return df
+    area = float(surveyed_area_m2)
+
+    out = df.copy()
+    if season_col in out.columns:
+        days = out[season_col].map(SEASON_DAYS_PER_YEAR)
+    else:
+        days = pd.Series(days_per_year(season or "annual"), index=out.index)
+    days = pd.to_numeric(days, errors="coerce")
+
+    targets = [c for c in df.columns
+               if c.endswith(PER_DAY_SUFFIX) and c not in set(exclude)]
+    for col in targets:
+        base = col[:-len(PER_DAY_SUFFIX)]
+        density = pd.to_numeric(out[col], errors="coerce") / area
+        at = out.columns.get_loc(col) + 1
+        out.insert(at, f"{base}_mg_CH4_per_m2_per_day", density)
+        out.insert(at + 1, f"{base}_g_CH4_per_m2_per_year",
+                   density * days / MG_PER_G)
+    return out
+
+
 def season_rates(season="annual"):
     """(rates, std_errors) for one season. Raises on an unknown name."""
     try:

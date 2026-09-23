@@ -35,6 +35,7 @@ from typing import Iterable, Sequence
 
 import numpy as np
 import pandas as pd
+import shapely
 from shapely.ops import unary_union
 from tqdm import tqdm
 
@@ -62,31 +63,50 @@ GROUP_THR = 0.6   # RF P(same) operating point, per deploy_grouper
 # 2026-09-14 lake run every seep wider than 3 m was a single CC, and most CCs
 # wider than the field maximum were long and thin.
 #
-# THREE gates, and all three must fire. The first version used span and shape
-# only, and shape alone does not mean "skinny": perimeter^2/(4 pi area) is a
-# ROUGHNESS measure, so a compact rosette of touching bubbles scores as high as
-# a crack. On the 2026-09-15 run, 142 of the 207 dropped components were under
-# 2.5:1 elongation -- real bubble clusters the detector merged, thrown away for
-# being ragged. Elongation is now measured directly and screening is a joint
-# condition, so a component has to be long AND narrow AND ragged to go.
+# TWO gates, and both must fire: a component has to be LONG and THIN to go.
 #
-# Every threshold is anchored to the 2429 hand-measured field seeps in
-# tools/flux/field_reference, not tuned against a flux total:
-#   span    1.30 m, the largest major axis ever recorded. Measured the same way
-#           on both sides: longest side of the minimum rotated rectangle.
-#   aspect  4.0, major/minor of that rectangle. 0.5% of field seeps reach it,
-#           and no field seep is both over 1.30 m and over 4:1.
-#   shape   4.0, perimeter^2/(4 pi area): 1 for a circle, higher the more
-#           convoluted. Real bubbles come out near 2; cracks run past 4. Kept
-#           as a third gate so a long, narrow, SMOOTH feature survives to be
-#           looked at rather than assumed to be ice.
+# The shape gate measures thinness as
 #
-# Components over the span limit that fail either other gate are kept and
-# flagged `oversized_kept`, on the same reasoning: a wide but solid or smooth
-# blob is likelier to be a real feature the detector merged than a crack.
+#     thinness = span / (2 * radius of the largest inscribed circle)
+#
+# which is the width of the fattest place in the component, compared against
+# its length. For a rectangle or an ellipse this equals major/minor exactly, so
+# it is the same quantity the field workbooks bound -- but it is local, so a
+# component that is fat ANYWHERE is not thin, whatever the rest of it does.
+# That is the property the two earlier gates lacked:
+#
+#   perimeter^2/(4 pi area)  measures ROUGHNESS, not width. A rosette of
+#       touching bubbles scores as high as a crack, so ragged real clusters
+#       went in the bin. This is what dropped 142 of 207 components on
+#       2026-09-15.
+#   minimum-rotated-rectangle aspect  measures the BOUNDING width. It reads a
+#       curved crack as fat (missed) and a straight run of bubbles as thin
+#       (dropped), because neither shape fills its own rectangle.
+#
+# Thresholds:
+#   span      1.30 m, the largest major axis among the 2429 hand-measured field
+#             seeps in tools/flux/field_reference. Not tuned against a flux
+#             total. Measured the same way on both sides: the longest side of
+#             the minimum rotated rectangle.
+#   thinness  8.0. The field's own aspect bound is 4.0, but that is measured on
+#             a whole seep ENVELOPE, and a connected component is a piece of
+#             one, so 4.0 cannot be carried across unchanged. 8.0 is the
+#             detected bubble population's own extreme upper tail: over 20000
+#             components sampled from the 2026-09-15 lake run, the 99.9th
+#             percentile of thinness is 5.6 and the 99.99th is 7.6. A component
+#             at 8.0 is thinner than essentially every bubble the detector
+#             finds, and twice as elongated as any seep the field ever
+#             measured.
+#
+# PROVISIONAL: 8.0 comes from that population tail, not from labeled cracks.
+# Confirm it against a hand-labeled set of the wide components before the
+# screen's drop rate goes in a manuscript.
+#
+# Components over the span limit that are not thin are kept and flagged
+# `oversized_kept`: a long but fat blob is likelier to be a real feature the
+# detector merged than a crack.
 SCREEN_MAX_SPAN_M = field_reference.MAX_SEEP_MAJOR_AXIS_M
-SCREEN_MIN_ASPECT = field_reference.MAX_SEEP_ASPECT
-SCREEN_MIN_SHAPE = 4.0
+SCREEN_MIN_THINNESS = 8.0
 
 # --------------------------------------------------------------------------- #
 # THE DECISION RULE -- posterior -> class label
@@ -188,19 +208,35 @@ def _mrr_axes_m(geom) -> tuple[float, float]:
     return max(sides), min(sides)
 
 
+def _max_inscribed_radius_m(geom) -> float:
+    """Radius of the largest circle that fits inside `geom`, in metres.
+
+    This is the half-width of the fattest place in the shape, so it is the one
+    measurement that says whether a component is circular ANYWHERE. Shapely
+    returns the circle as a centre-to-boundary segment, whose length is the
+    radius.
+    """
+    try:
+        return float(shapely.maximum_inscribed_circle(geom).length)
+    except Exception:            # degenerate geometry: a point or a line
+        return 0.0
+
+
 def screen_bubbles(bubbles, max_span_m=SCREEN_MAX_SPAN_M,
-                   min_aspect=SCREEN_MIN_ASPECT, min_shape=SCREEN_MIN_SHAPE,
-                   progress=True):
+                   min_thinness=SCREEN_MIN_THINNESS, progress=True):
     """Drop crack-like connected components. Returns (kept, dropped).
 
-    A component goes only if it clears all three gates -- longer than
-    `max_span_m`, narrower than 1:`min_aspect`, and rougher than `min_shape`.
-    Anything that clears the span gate alone is KEPT and flagged
-    `oversized_kept`, so a wide real feature stays in the flux.
+    A component goes only if it clears both gates -- longer than `max_span_m`,
+    and thinner than 1:`min_thinness` at its widest point. Anything that clears
+    the span gate alone is KEPT and flagged `oversized_kept`, so a wide real
+    feature stays in the flux.
 
-    `dropped` carries `span_m`, `aspect`, `shape_index` and `screen_reason`,
-    and is written out so the screen can be eyeballed in QGIS -- a screen
-    nobody can audit is a screen nobody should trust.
+    `dropped` carries `span_m`, `inradius_m`, `thinness`, `aspect`,
+    `shape_index` and `screen_reason`, and is written out so the screen can be
+    eyeballed in QGIS -- a screen nobody can audit is a screen nobody should
+    trust. Only `span_m` and `thinness` drive the decision; `aspect` and
+    `shape_index` are carried as diagnostics, because they are what the screen
+    used to gate on and a reviewer needs to see both readings on the same rows.
 
     Deterministic: this is a geometry filter with field-anchored thresholds, not
     a model, so it runs identically in the point estimate and in every draw.
@@ -208,11 +244,13 @@ def screen_bubbles(bubbles, max_span_m=SCREEN_MAX_SPAN_M,
     if max_span_m is None:
         return bubbles, bubbles.iloc[:0].copy()
 
-    axes = np.array([_mrr_axes_m(g) for g in
-                     tqdm(bubbles.geometry.values, desc="screen",
-                          disable=not progress)])
+    geoms = list(tqdm(bubbles.geometry.values, desc="screen",
+                      disable=not progress))
+    axes = np.array([_mrr_axes_m(g) for g in geoms])
     span, minor = axes[:, 0], axes[:, 1]
+    inradius = np.array([_max_inscribed_radius_m(g) for g in geoms])
     with np.errstate(divide="ignore", invalid="ignore"):
+        thinness = np.where(inradius > 0, span / (2 * inradius), np.inf)
         aspect = np.where(minor > 0, span / minor, np.inf)
     area = bubbles["area_m2"].to_numpy(dtype=float)
     perim = bubbles["perim_m"].to_numpy(dtype=float)
@@ -220,12 +258,14 @@ def screen_bubbles(bubbles, max_span_m=SCREEN_MAX_SPAN_M,
         shape = np.where(area > 0, perim ** 2 / (4 * np.pi * area), np.inf)
 
     wide = span > max_span_m
-    crack = wide & (aspect >= min_aspect) & (shape >= min_shape)
+    crack = wide & (thinness >= min_thinness)
     flagged = wide & ~crack
 
     def _annotate(mask, reason):
         out = bubbles[mask].copy()
         out["span_m"] = span[mask]
+        out["inradius_m"] = inradius[mask]
+        out["thinness"] = thinness[mask]
         out["aspect"] = aspect[mask]
         out["shape_index"] = shape[mask]
         out["screen_reason"] = reason
@@ -239,9 +279,8 @@ def screen_bubbles(bubbles, max_span_m=SCREEN_MAX_SPAN_M,
     kept = bubbles[~crack].reset_index(drop=True)
     if progress:
         print(f"[screen] {int(crack.sum())} crack-like bubbles removed "
-              f"(span > {max_span_m} m AND aspect >= {min_aspect} AND "
-              f"shape >= {min_shape}); {int(flagged.sum())} wide but not "
-              f"crack-like kept and flagged")
+              f"(span > {max_span_m} m AND thinness >= {min_thinness}); "
+              f"{int(flagged.sum())} wide but not thin, kept and flagged")
     return kept, dropped
 
 
@@ -463,8 +502,7 @@ class ChainParams:
     decision_rule: str = DEFAULT_DECISION_RULE
     overcall_penalty: float = DEFAULT_OVERCALL_PENALTY
     max_span_m: float | None = SCREEN_MAX_SPAN_M
-    min_aspect: float = SCREEN_MIN_ASPECT
-    min_shape: float = SCREEN_MIN_SHAPE
+    min_thinness: float = SCREEN_MIN_THINNESS
     thr_source: str = "artifact"
 
     def replace(self, **kw) -> "ChainParams":
@@ -479,7 +517,7 @@ def resolve_params(model_prov, upstream, *, thr=None, cap=AGGLOM_CAP_M,
                    decision_rule=DEFAULT_DECISION_RULE,
                    overcall_penalty=DEFAULT_OVERCALL_PENALTY,
                    max_span_m=SCREEN_MAX_SPAN_M,
-                   min_aspect=SCREEN_MIN_ASPECT, min_shape=SCREEN_MIN_SHAPE,
+                   min_thinness=SCREEN_MIN_THINNESS,
                    brightness_cell_m=None) -> ChainParams:
     """Build `ChainParams`, deferring to the artifact wherever it records a value.
 
@@ -508,7 +546,7 @@ def resolve_params(model_prov, upstream, *, thr=None, cap=AGGLOM_CAP_M,
         brightness_cell_m=cell_m, decision_rule=decision_rule,
         overcall_penalty=float(overcall_penalty),
         max_span_m=(None if not max_span_m else float(max_span_m)),
-        min_aspect=float(min_aspect), min_shape=float(min_shape),
+        min_thinness=float(min_thinness),
         thr_source=thr_source)
 
 
@@ -598,8 +636,7 @@ def run_chain(bubbles, grouper, classifier, params: ChainParams, *,
     if screened is None:
         bubbles, dropped = screen_bubbles(
             bubbles, max_span_m=params.max_span_m,
-            min_aspect=params.min_aspect, min_shape=params.min_shape,
-            progress=progress)
+            min_thinness=params.min_thinness, progress=progress)
         bubbles = bubbles.reset_index(drop=True)
     else:
         bubbles, dropped = screened

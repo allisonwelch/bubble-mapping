@@ -202,7 +202,7 @@ def run(bubbles_fp, out_dir, *, draws=500, shard=(0, 1),
     # re-running it every draw would cost time without changing anything.
     kept, dropped = screen_bubbles(
         bubbles.reset_index(drop=True), max_span_m=params.max_span_m,
-        min_aspect=params.min_aspect, min_shape=params.min_shape, progress=True)
+        min_thinness=params.min_thinness, progress=True)
     kept = kept.reset_index(drop=True)
 
     mine = list(range(draws))[si::sn]
@@ -223,7 +223,11 @@ def run(bubbles_fp, out_dir, *, draws=500, shard=(0, 1),
         print(f"[unc] draw {k}/{len(mine)} (index {i})  "
               f"{(time.time() - t0) / k:.1f} s/draw", flush=True)
 
-    df = pd.DataFrame(rows)
+    # Each draw carries its own density and annual mass, so a histogram of the
+    # draws can be read in whichever unit the figure needs without re-deriving
+    # the area from somewhere else.
+    df = flux_rates.add_per_area_columns(
+        pd.DataFrame(rows), upstream.get("surveyed_area_m2"))
     tag = f"{si:03d}of{sn:03d}"
     fp = os.path.join(out_dir, f"draws_{tag}.csv")
     df.to_csv(fp, index=False)
@@ -294,13 +298,27 @@ def summarize(out_dir, seasons=None, base_seed=DEFAULT_BASE_SEED):
             "re-run with matching --shard i/N values.")
 
     point_fp = os.path.join(out_dir, "point.json")
-    point = {}
+    point, surveyed_area_m2 = {}, None
     if os.path.exists(point_fp):
         with open(point_fp) as fh:
-            point = json.load(fh).get("seasons", {})
+            blob = json.load(fh)
+        point = blob.get("seasons", {})
+        surveyed_area_m2 = blob.get("surveyed_area_m2")
     else:
         print(f"[unc] WARNING: no {point_fp}. Run --point so the centring "
               "check can tell a valid interval from a miscentred one.")
+
+    # The shards record the surveyed area too, so a directory summarised
+    # without a point.json still reports densities.
+    if surveyed_area_m2 is None:
+        for fp in sorted(glob.glob(os.path.join(out_dir, "meta_*.json"))):
+            with open(fp) as fh:
+                surveyed_area_m2 = json.load(fh).get("surveyed_area_m2")
+            if surveyed_area_m2:
+                break
+    if not surveyed_area_m2:
+        print("[unc] WARNING: no surveyed area recorded, so the interval "
+              "cannot be reported per m2 or per year.")
 
     rng = np.random.default_rng(base_seed)
     rows = []
@@ -344,6 +362,12 @@ def summarize(out_dir, seasons=None, base_seed=DEFAULT_BASE_SEED):
             })
         rows.append(row)
     summary = pd.DataFrame(rows)
+    # Every mg CH4/day column gets the same two twins -- the point estimate,
+    # the median, both percentiles and both standard deviations -- so the
+    # interval is never quoted in a different unit than the centre it surrounds.
+    summary = flux_rates.add_per_area_columns(summary, surveyed_area_m2)
+    if surveyed_area_m2:
+        summary["surveyed_area_m2"] = surveyed_area_m2
     summary.to_csv(os.path.join(out_dir, "summary.csv"), index=False)
 
     print("\n" + "=" * 72)
@@ -356,6 +380,18 @@ def summarize(out_dir, seasons=None, base_seed=DEFAULT_BASE_SEED):
         head.insert(2, "point_total_mg_CH4_per_day")
     print(summary[head].to_string(index=False,
                                   float_format=lambda v: f"{v:,.2f}"))
+    area_cols = [c for c in summary.columns
+                 if c.startswith(("point_total_", "median_", "p2.5_", "p97.5_"))
+                 and c.endswith(("_mg_CH4_per_m2_per_day",
+                                 "_g_CH4_per_m2_per_year"))]
+    if area_cols:
+        print(f"\nover {surveyed_area_m2:,.0f} m2 of surveyed lake:")
+        print(summary[["season"] + area_cols].to_string(
+            index=False, float_format=lambda v: f"{v:,.4f}"))
+        print("the per-year columns are blank for summer and winter: those "
+              "rates cover a regime\nof unrecorded length, so neither "
+              "integrates to a year.")
+
     print("\nThe median sits below the mean because the class-A rate is "
           "strongly right-skewed\n(16 +/- 10, so its lognormal median is 15% "
           "under its mean). That is the error model,\nnot a bias: the draw is "

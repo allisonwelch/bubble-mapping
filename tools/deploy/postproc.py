@@ -51,7 +51,7 @@ from tools.classify.fit_classifier import CLASSES
 from tools.deploy import build_artifacts, runinfo
 from tools.deploy.chain import (  # noqa: F401  (re-exported for callers)
     DECISION_RULES, DEFAULT_DECISION_RULE, DEFAULT_OVERCALL_PENALTY, GROUP_THR,
-    SCREEN_MAX_SPAN_M, SCREEN_MIN_ASPECT, SCREEN_MIN_SHAPE, ChainParams,
+    SCREEN_MAX_SPAN_M, SCREEN_MIN_THINNESS, ChainParams,
     _classifier_brightness, _default_brightness_cell_m, _grouper_threshold,
     classify_seeps, dissolve_bubbles_to_seeps, group_bubbles, resolve_params,
     run_chain, screen_bubbles)
@@ -138,13 +138,24 @@ def attach_flux(seeps, season="annual"):
 
 
 def flux_report(seeps, surveyed_area_m2=None, season="annual"):
-    """The end-of-chain tables: per-season totals and a per-image breakdown."""
+    """The end-of-chain tables: per-season totals and a per-image breakdown.
+
+    Every mg CH4/day column in the season table is reported three ways -- as
+    itself, over the surveyed area, and as an annual mass -- including the two
+    uncertainty terms, so the interval and the central estimate are never in
+    different units. The per-image table is NOT, on purpose: the surveyed area
+    is measured over the whole lake and no per-image area exists, so dividing
+    one image's flux by it would read as that image's own density.
+    """
     counts = seeps["class"].value_counts().to_dict()
     table = flux_rates.flux_table(counts)
     if surveyed_area_m2:
         table["surveyed_area_m2"] = surveyed_area_m2
-        table["mg_CH4_per_m2_per_day"] = (
-            table["total_mg_CH4_per_day"] / surveyed_area_m2)
+        # The per-class published rates are per SEEP, so they are excluded:
+        # one seep's rate over the whole lake area is not a quantity.
+        table = flux_rates.add_per_area_columns(
+            table, surveyed_area_m2,
+            exclude=[f"rate_{c}_mg_CH4_per_day" for c in CLASSES])
         table["seeps_per_m2"] = table["n_seeps"] / surveyed_area_m2
 
     per_image = []
@@ -208,12 +219,14 @@ def lake_totals_long(seeps, table, surveyed_area_m2=None, label=None,
                 "rate_std_err_mg_CH4_per_day":
                     float(r["rate_std_err_mg_CH4_per_day"]) if is_all
                     else None,
-                "flux_mg_CH4_per_m2_per_day":
-                    (flux / surveyed_area_m2) if surveyed_area_m2 else None,
                 "seeps_per_m2":
                     (n / surveyed_area_m2) if surveyed_area_m2 else None,
             })
-    return pd.DataFrame(rows)
+    # `rate_mg_CH4_per_day` is one seep's published rate, not a lake figure, so
+    # it keeps its own unit. Everything else gains the density and annual-mass
+    # twins, including the standard error on the `all` row.
+    return flux_rates.add_per_area_columns(
+        pd.DataFrame(rows), surveyed_area_m2, exclude=["rate_mg_CH4_per_day"])
 
 
 # --------------------------------------------------------------------------- #
@@ -268,8 +281,8 @@ def run(bubbles, out_dir, labeling_dir=None, thr=None, cap=AGGLOM_CAP_M,
         source=None, label=None, artifacts_dir=None, refit=False, seed=42,
         decision_rule=DEFAULT_DECISION_RULE,
         overcall_penalty=DEFAULT_OVERCALL_PENALTY,
-        max_span_m=SCREEN_MAX_SPAN_M, min_aspect=SCREEN_MIN_ASPECT,
-        min_shape=SCREEN_MIN_SHAPE, brightness_cell_m=None):
+        max_span_m=SCREEN_MAX_SPAN_M, min_thinness=SCREEN_MIN_THINNESS,
+        brightness_cell_m=None):
     """Group -> dissolve -> classify -> flux. Returns (seeps, table, per_image).
 
     Both models are loaded frozen from disk (`tools.deploy.build_artifacts`);
@@ -311,7 +324,7 @@ def run(bubbles, out_dir, labeling_dir=None, thr=None, cap=AGGLOM_CAP_M,
     params = resolve_params(
         model_prov, upstream, thr=thr, cap=cap, decision_rule=decision_rule,
         overcall_penalty=overcall_penalty, max_span_m=max_span_m,
-        min_aspect=min_aspect, min_shape=min_shape,
+        min_thinness=min_thinness,
         brightness_cell_m=brightness_cell_m)
     print(f"[group] P(same) threshold {params.thr} ({params.thr_source})")
 
@@ -366,8 +379,7 @@ def run(bubbles, out_dir, labeling_dir=None, thr=None, cap=AGGLOM_CAP_M,
         "agglom_cap_m": params.cap,
         "season": season,
         "screen_max_span_m": params.max_span_m,
-        "screen_min_aspect": params.min_aspect,
-        "screen_min_shape": params.min_shape,
+        "screen_min_thinness": params.min_thinness,
         "n_bubbles_in": int(n_in),
         "n_bubbles_screened": res.n_screened,
         "brightness": params.brightness_mode,
@@ -402,9 +414,14 @@ def _print_report(table, per_image, surveyed_area_m2, bench=None):
     cols = ["season", "n_A", "n_B", "n_C", "n_seeps", "total_mg_CH4_per_day",
             "rate_std_err_pct", "pct_flux_from_C"]
     if surveyed_area_m2:
-        cols.append("mg_CH4_per_m2_per_day")
-    print(table[cols].to_string(index=False,
-                                float_format=lambda v: f"{v:,.3f}"))
+        cols += ["total_mg_CH4_per_m2_per_day", "total_g_CH4_per_m2_per_year"]
+    print(table[cols].to_string(
+        index=False,
+        float_format=lambda v: f"{v:,.4f}" if abs(v) < 10 else f"{v:,.2f}"))
+    if surveyed_area_m2:
+        print("\ntotal_g_CH4_per_m2_per_year is blank for summer and winter: "
+              "those are per-day rates\nwithin a regime whose length is not "
+              "recorded, so neither integrates to a year.")
     print("\nper image:")
     print(per_image.to_string(index=False, float_format=lambda v: f"{v:,.0f}"))
     print("\nrate_std_err_pct is the PUBLISHED RATE uncertainty only. Detector, "
@@ -462,18 +479,15 @@ def main(argv=None):
     ap.add_argument("--cap", type=float, default=AGGLOM_CAP_M)
     ap.add_argument("--max-span-m", type=float, default=SCREEN_MAX_SPAN_M,
                     help="drop single connected components longer than this "
-                         "AND elongated AND ragged. Default %(default)s m is "
-                         "the largest major axis in the field workbooks, not a "
-                         "tuned value. Pass 0 to disable the screen.")
-    ap.add_argument("--min-aspect", type=float, default=SCREEN_MIN_ASPECT,
-                    help="major/minor of the minimum rotated rectangle above "
-                         "which a long blob counts as a crack (default "
-                         "%(default)s; 0.5%% of field seeps reach it)")
-    ap.add_argument("--min-shape", type=float, default=SCREEN_MIN_SHAPE,
-                    help="perimeter^2/(4 pi area) above which a long blob "
-                         "counts as a crack (default %(default)s; a circle "
-                         "is 1, real bubbles ~2). Roughness only -- it does "
-                         "NOT measure elongation, which is --min-aspect")
+                         "AND thin. Default %(default)s m is the largest major "
+                         "axis in the field workbooks, not a tuned value. Pass "
+                         "0 to disable the screen.")
+    ap.add_argument("--min-thinness", type=float, default=SCREEN_MIN_THINNESS,
+                    help="span / (2 * largest inscribed circle radius) above "
+                         "which a long component counts as a crack (default "
+                         "%(default)s). 1 is a circle, and the measure is "
+                         "local, so a component that is fat anywhere survives "
+                         "however ragged or elongated its outline is.")
     ap.add_argument("--brightness-cell-m", type=float, default=None,
                     help="neighbourhood size for relative brightness. Only "
                          "used when the loaded classifier was fit with "
@@ -500,8 +514,8 @@ def main(argv=None):
         source=source, artifacts_dir=args.artifacts_dir, refit=args.refit,
         seed=args.seed, decision_rule=args.decision_rule,
         overcall_penalty=args.overcall_penalty,
-        max_span_m=args.max_span_m or None, min_aspect=args.min_aspect,
-        min_shape=args.min_shape, brightness_cell_m=args.brightness_cell_m)
+        max_span_m=args.max_span_m or None, min_thinness=args.min_thinness,
+        brightness_cell_m=args.brightness_cell_m)
 
 
 if __name__ == "__main__":

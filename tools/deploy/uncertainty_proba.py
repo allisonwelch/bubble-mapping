@@ -219,10 +219,9 @@ def threshold_sweep(kept, dropped, grouper, classifier, params, thresholds,
                 **{f"n_{c}_argmax": int(hard.get(c, 0)) for c in CLASSES},
                 **{f"n_{c}": float(soft.get(c, 0.0)) for c in CLASSES},
                 "total_mg_CH4_per_day": total,
-                "mg_CH4_per_m2_per_day": (total / surveyed_area_m2
-                                          if surveyed_area_m2 else None),
             })
-    return pd.DataFrame(rows)
+    return flux_rates.add_per_area_columns(pd.DataFrame(rows),
+                                           surveyed_area_m2)
 
 
 # --------------------------------------------------------------------------- #
@@ -247,7 +246,7 @@ def run(bubbles_fp, out_dir, *, draws=500, base_seed=DEFAULT_BASE_SEED,
 
     kept, dropped = screen_bubbles(
         bubbles.reset_index(drop=True), max_span_m=params.max_span_m,
-        min_aspect=params.min_aspect, min_shape=params.min_shape, progress=True)
+        min_thinness=params.min_thinness, progress=True)
     kept = kept.reset_index(drop=True)
 
     res = run_chain(kept, grouper, classifier, params, progress=True,
@@ -298,7 +297,10 @@ def run(bubbles_fp, out_dir, *, draws=500, base_seed=DEFAULT_BASE_SEED,
                 "total_mg_CH4_per_day": total,
                 "rate_std_err_mg_CH4_per_day": sigma,
             })
-    draws_df = pd.DataFrame(rows)
+    # Each draw carries its own density and annual mass, so a histogram of the
+    # draws reads in whichever unit the figure needs.
+    draws_df = flux_rates.add_per_area_columns(pd.DataFrame(rows),
+                                               surveyed_area_m2)
     draws_df.to_csv(os.path.join(out_dir, "draws.csv"), index=False)
 
     # ---------------- the sweep ---------------- #
@@ -356,19 +358,24 @@ def summarize(out_dir, point=None, draws_df=None, sweep_df=None,
             "mean_mg_CH4_per_day": float(t.mean()),
             "centre_shift_pct": 100 * (med / pt - 1.0) if pt else np.nan,
             "sd_mg_CH4_per_day": float(t.std(ddof=1)),
-            "closed_form_rate_sigma":
+            # These three carry the unit suffix so they pick up the same
+            # per-area twins as the percentiles they are compared against.
+            "closed_form_rate_sigma_mg_CH4_per_day":
                 float(p.get("rate_sigma_mg_CH4_per_day", np.nan)),
-            "closed_form_classifier_sigma":
+            "closed_form_classifier_sigma_mg_CH4_per_day":
                 float(p.get("classifier_sigma_mg_CH4_per_day", np.nan)),
-            "closed_form_combined_sigma":
+            "closed_form_combined_sigma_mg_CH4_per_day":
                 float(p.get("combined_sigma_mg_CH4_per_day", np.nan)),
             "total_argmax_mg_CH4_per_day":
                 float(p.get("total_argmax_mg_CH4_per_day", np.nan)),
         }
-        if surveyed_area_m2:
-            row["mg_CH4_per_m2_per_day"] = pt / surveyed_area_m2
         rows.append(row)
     summary = pd.DataFrame(rows)
+    # The point estimate, both percentiles, the sampled sd and all three
+    # closed-form sigmas, each over the surveyed area and as an annual mass.
+    summary = flux_rates.add_per_area_columns(summary, surveyed_area_m2)
+    if surveyed_area_m2:
+        summary["surveyed_area_m2"] = surveyed_area_m2
     summary.to_csv(os.path.join(out_dir, "summary.csv"), index=False)
 
     print("\n" + "=" * 72)
@@ -380,13 +387,25 @@ def summarize(out_dir, point=None, draws_df=None, sweep_df=None,
     print(summary[head].to_string(index=False,
                                   float_format=lambda v: f"{v:,.2f}"))
 
+    area_cols = [c for c in summary.columns
+                 if c.startswith(("point_total_", "median_", "p2.5_", "p97.5_"))
+                 and c.endswith(("_mg_CH4_per_m2_per_day",
+                                 "_g_CH4_per_m2_per_year"))]
+    if area_cols:
+        print(f"\nover {surveyed_area_m2:,.0f} m2 of surveyed lake:")
+        print(summary[["season"] + area_cols].to_string(
+            index=False, float_format=lambda v: f"{v:,.4f}"))
+        print("the per-year columns are blank for summer and winter: those "
+              "rates cover a regime\nof unrecorded length, so neither "
+              "integrates to a year.")
+
     print("\nwhere the spread comes from (closed form, at the point counts):")
     for _, r in summary.iterrows():
-        tot = r["closed_form_combined_sigma"]
-        share = (100 * (r["closed_form_rate_sigma"] / tot) ** 2
-                 if tot else np.nan)
-        print(f"  {r['season']}: rates {r['closed_form_rate_sigma']:,.0f}, "
-              f"classifier {r['closed_form_classifier_sigma']:,.0f}, "
+        tot = r["closed_form_combined_sigma_mg_CH4_per_day"]
+        rate_sigma = r["closed_form_rate_sigma_mg_CH4_per_day"]
+        share = 100 * (rate_sigma / tot) ** 2 if tot else np.nan
+        print(f"  {r['season']}: rates {rate_sigma:,.0f}, classifier "
+              f"{r['closed_form_classifier_sigma_mg_CH4_per_day']:,.0f}, "
               f"combined {tot:,.0f}  ({share:.1f}% of the variance is rates)")
 
     _check_counts(point, draws_df)
@@ -399,9 +418,14 @@ def summarize(out_dir, point=None, draws_df=None, sweep_df=None,
         print("-" * 72)
         cols = [c for c in ["group_threshold", "is_deploy_operating_point",
                             "season", "n_seeps", "total_mg_CH4_per_day",
-                            "mg_CH4_per_m2_per_day"] if c in sweep_df.columns]
-        print(sweep_df[cols].to_string(index=False,
-                                       float_format=lambda v: f"{v:,.2f}"))
+                            "total_mg_CH4_per_m2_per_day",
+                            "total_g_CH4_per_m2_per_year"]
+                if c in sweep_df.columns]
+        # Densities run to a few hundredths, totals to five figures, and one
+        # format cannot show both -- so the width follows the magnitude.
+        print(sweep_df[cols].to_string(
+            index=False,
+            float_format=lambda v: f"{v:,.4f}" if abs(v) < 10 else f"{v:,.2f}"))
         for season, sub in sweep_df.groupby("season"):
             dep = sub[sub["is_deploy_operating_point"]]
             if not len(dep):

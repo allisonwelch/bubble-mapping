@@ -67,17 +67,17 @@ def test_chain_reproduces_the_deploy_run(run_dir):
     grouper, classifier, model_prov = postproc.load_models()
     params = resolve_params(model_prov, upstream)
 
-    # The screen's thresholds moved on 2026-09-17 (a third gate, and the span
-    # limit to 1.30 m). An older run_info recorded the older gates, so compare
-    # like for like rather than declaring the refactor broken.
+    # The screen's shape gate moved on 2026-09-23: the aspect and roughness
+    # gates became one thinness gate, because neither measured width. An older
+    # run_info records the older gates, so compare like for like rather than
+    # declaring the refactor broken.
     recorded_gates = (want.get("screen_max_span_m"),
-                      want.get("screen_min_aspect"),
-                      want.get("screen_min_shape"))
-    current_gates = (params.max_span_m, params.min_aspect, params.min_shape)
+                      want.get("screen_min_thinness"))
+    current_gates = (params.max_span_m, params.min_thinness)
     if any(g is None for g in recorded_gates):
         raise Skip(
             f"{os.path.basename(run_dir)}/run_info_postproc.json predates the "
-            "three-gate crack screen (no screen_min_aspect), so its counts are "
+            "thinness crack screen (no screen_min_thinness), so its counts are "
             "not comparable. Re-run `deploy.py --stage postproc` on it first.")
     if tuple(float(g) for g in recorded_gates) != tuple(
             float(g) for g in current_gates):

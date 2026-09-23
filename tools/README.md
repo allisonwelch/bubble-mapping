@@ -136,6 +136,188 @@ preflights all six before claiming the GPU.
 
 ---
 
+## Run a new orthomosaic, start to finish
+
+The whole procedure is three SLURM jobs: one GPU job for the flux number, then
+two CPU jobs for the error bar. Each takes its inputs from environment
+variables, so you override what changed and leave the rest at the defaults
+recorded in the script.
+
+### 1. Digitize the lake polygon
+
+Inference is cropped to this polygon, and the polygon also defines
+`surveyed_area_m2`. Without it,
+the run covers the whole raster footprint including shore and snow-covered
+land (skewing results high).
+
+Save it as a GeoPackage in the ortho's own CRS. Pass `PATH` or `PATH:LAYER`.
+
+### 2. Build the frozen artifacts, if they are missing or stale
+
+```bash
+python -m tools.deploy.build_artifacts
+```
+
+Rebuild only when the checkpoint changes or a labeler pack changes. The run
+writes `grouper_rf.joblib`, `classifier_rf.joblib` and `artifacts.json` beside
+the checkpoint; `artifacts.json` carries the sklearn version, the seed and the
+sha256 of every input pack, which is the triple that makes a flux number
+reproducible. A deploy run never trains — `--refit` exists for experiments and
+makes the run unreproducible.
+
+### 3. Smoke-test the detector on a few tiles
+
+```bash
+IMAGE=/path/ORTHO.tif LAKE=/path/LAKE.gpkg \
+  OUT_DIR=/path/deploy_out/SMOKE EXTRA="--limit-tiles 20" \
+  sbatch deploy_lake.slurm
+```
+
+Open `tiles.gpkg` and `bubbles.gpkg` in QGIS over the ortho. Confirm that the
+tile grid sits inside the shoreline and that detections land on bubbles rather
+than on snow or on the bank. Fixing a bad polygon here costs 20 tiles instead
+of a whole lake.
+
+### 4. Run the full lake
+
+```bash
+IMAGE=/path/ORTHO.tif LAKE=/path/LAKE.gpkg \
+  RUN_NAME=<lake>_<YYYYmmdd> sbatch deploy_lake.slurm
+```
+
+`OUT_DIR` defaults to `$DEPLOY_ROOT/$RUN_NAME`, and `RUN_NAME` defaults to the
+lake tag parsed out of the image filename plus today's date. The script
+preflights the ortho, the polygon, the checkpoint and the three artifact files
+before it claims the GPU.
+
+To split the stages across machines, run `--stage detect` on the GPU node and
+`--stage postproc` anywhere afterwards against the same `--out-dir`. Stage B
+needs neither torch nor a GPU.
+
+### 5. Check that the chain is the one on disk
+
+```bash
+python -m tools.deploy.test_chain OUT_DIR
+```
+
+Run this after the deploy job and after any edit to `chain.py`, `postproc.py`
+or either uncertainty module. A SKIP means the run's `run_info_postproc.json`
+predates the current screen and needs `deploy.py --stage postproc` re-run — a
+skip is not a pass, so say so when you report it.
+
+### 6. Read the outputs
+
+`seeps.gpkg` carries the hulls, the A/B/C label, `p_A` / `p_B` / `p_C` and the
+per-seep rate. `flux_summary.csv` carries the per-season totals,
+`lake_flux_totals_<timestamp>.csv` the long per-season × class table, and
+`run_info_postproc.json` the operating point every later step must reproduce.
+`surveyed_area_m2` travels inside the GeoPackage, so the count never gets
+separated from the area it was counted over.
+
+Every flux column in every CSV is
+written three ways:
+
+| Column | Unit |
+|---|---|
+| `*_mg_CH4_per_day` | mg CH₄/day |
+| `*_mg_CH4_per_m2_per_day` | mg CH₄ m⁻² day⁻¹ |
+| `*_g_CH4_per_m2_per_year` | g CH₄ m⁻² year⁻¹ |
+
+The conversion is linear, so it applies to every percentile and standard error
+exactly as it applies to the central estimate. `tools/flux/rates.py::add_per_area_columns` does it in
+one place for all of them.
+
+The per-year column is **blank for the summer and winter rows**.
+
+---
+
+## Two uncertainty forward propagation methods
+
+Both methods run against the deploy run's `bubbles.gpkg`, both are CPU-only,
+and both call the same `tools.deploy.chain.run_chain` the deploy run calls. So
+each one's point estimate reproduces the deploy total by construction, and each
+fails loudly if its ensemble does not sit on that point estimate.
+
+| | `uncertainty_labels` (method 1) | `uncertainty_proba` (method 2) |
+|---|---|---|
+| The total counts | seeps labeled *c* | Σ p_c over seeps |
+| Sampled | both forests' trees, + the three published rates | each seep's class from its own posterior, + the three published rates |
+| Held fixed | the P(same) threshold, the decision rule | the grouping, the threshold |
+| Cost | re-groups every draw: hours, sharded across 8 workers | groups once: seconds |
+| Variance decomposition | `--terms` one at a time | printed in closed form |
+| Writes | `point.json`, `draws_*.csv`, `meta_*.json`, `summary.csv` | `point.json`, `draws.csv`, `summary.csv`, `threshold_sweep.csv` |
+
+Method 2's total sits above method 1's because a map made by taking the most
+likely class at each location systematically loses rare classes, and C carries
+the most methane per seep (Olofsson et al. 2014, *Remote Sensing of
+Environment* 148, 42–57). Method 2's total will differ from maps of classified seep occurance.
+### Run method 1 — trees resampled, label-based total
+
+```bash
+RUN_DIR=/path/deploy_out/<run> DRAWS=500 sbatch uncertainty_labels.slurm
+```
+
+The job writes `point.json` first, forks `WORKERS` shards over the draws, then
+summarizes. `DRAWS` is the total across every shard, and shard *i/N* takes
+every *N*th draw, so a shard that dies still leaves a uniform sample behind.
+Draw *i* is seeded `base_seed + i` and nothing else.
+
+To pilot it, submit with `DRAWS=16 WORKERS=4` to `t1small` rather than to the
+debug partition. To run a stage by hand:
+
+```bash
+python -m tools.deploy.uncertainty_labels --bubbles RUN/bubbles.gpkg \
+    --out-dir RUN/uncertainty_labels --point
+python -m tools.deploy.uncertainty_labels --bubbles RUN/bubbles.gpkg \
+    --out-dir RUN/uncertainty_labels --draws 500 --shard 0/8
+python -m tools.deploy.uncertainty_labels --summarize RUN/uncertainty_labels
+```
+
+Run `--point` before the shards. The centering check needs it, and without it
+nothing can tell a valid interval from a miscenterd one. If the check fails,
+re-run `--terms` one term at a time to find which term moved the center; do not
+rescale the interval back onto the point estimate.
+
+### Run method 2 — posterior sampled, closed form cross-checked
+
+```bash
+RUN_DIR=/path/deploy_out/<run> SWEEP=0.5,0.6,0.7 sbatch uncertainty_proba.slurm
+```
+
+One command does the point estimate, the draws, the threshold sweep and the
+summary, because nothing is re-grouped between draws. By hand:
+
+```bash
+python -m tools.deploy.uncertainty_proba --bubbles RUN/bubbles.gpkg \
+    --out-dir RUN/uncertainty_proba --draws 500 --threshold-sweep 0.5,0.6,0.7
+```
+
+The classifier term also has a closed form — the class count is a
+Poisson-binomial, so `sd(N_c) = sqrt(Σ p_c(1−p_c))` — and `summarize` checks
+that the simulation reproduces it. A failure there means the sampling loop is
+wrong, not that the interval is wide.
+
+`--threshold-sweep` re-runs the whole chain at each grouping threshold and
+always includes the artifact's own operating point, flagged in the output.
+Report that spread as its own line **beside** the interval, never inside it: the
+threshold is a chosen operating point, not an unknown.
+
+### What the interval does not contain
+
+These should be included in a separate bias percentage:
+
+- **Detector false positives.** At a precision below 1 the seep count is
+  systematically high. Quote precision and recall beside the
+  interval, with the domain named.
+- **The grouping threshold.** Reported as the sweep, separately.
+- **The correlated part of classifier error,** which the Poisson-binomial
+  treats as a floor. The held-out-chip confusion matrix measures it as a bias.
+
+The published per-class rates dominate the variance, and they are external to
+the pipeline.
+
+---
+
 ## `eval/` — detection metrics
 
 | Script | Does |
@@ -197,13 +379,12 @@ duplicate weighting, so their numbers are not on the same basis as
 |---|---|
 | `rates.py` | **The single owner of the per-class flux rates** (annual / summer / winter, Walter Anthony et al. 2010). `lake_total` turns per-class seep counts into mg CH₄/day; `flux_table` / `write_flux_table` emit the per-season summary spreadsheet. Nothing else in the repo should define a rate. |
 
-Two things to know before quoting a number from here. The ± figures are
+The ± figures are
 **standard errors on each class mean**, so they are shared by every seep of a
-class and do not average down — that is why the rate term is a floor rather
-than something more mapping can shrink. And `lake_total` takes an optional
+class and do not average down. And `lake_total` takes an optional
 `rng`, which draws each class rate from a moment-matched lognormal; that is the
-hook for the Monte Carlo error propagation, and it is the only part of the
-uncertainty story that covers detector / grouper / classifier error.
+hook both `deploy/uncertainty_*.py` modules draw the rate term through, and it
+is the dominant term in either interval.
 
 ## `deploy/` — orthomosaic → lake total
 
@@ -215,6 +396,10 @@ isolation; this is the only thing that chains them.
 | `tiles.py` | Grids a whole-lake ortho into **15 m tiles inside the lake polygon**. Not a chunking convenience: the tile is the z-score window, and every canonical number in this repo was produced with that window at chip size. `tile_m` changes the detections. |
 | `detect.py` | **Stage A, needs a GPU.** Runs `evaluation.py::_infer_full_image` per tile, masks to the lake polygon and the ortho's alpha band, smooths, labels connected components, and writes `bubbles.gpkg` + `run_info.json`. Refuses to run a checkpoint whose keys don't match the config, rather than loading it partially the way `evaluation.py` would. |
 | `postproc.py` | **Stage B, CPU only.** `bubbles.gpkg` → grouper → dissolve + hull → classifier → decision rule → count-based flux. `--from-pred-dir` runs it against an existing prediction directory instead, which is how the chain gets exercised without a lake-scale run. |
+| `chain.py` | Steps 1–4 live here **once**: `run_chain` is what `postproc.run` and both uncertainty modules call, so a no-sampling draw reproduces the deploy number by construction. Do not re-implement the chain in a new script. |
+| `uncertainty_labels.py` | **Method 1.** Resamples both forests' trees and draws the rates; the headline stays the label-based total. Holds the threshold and the decision rule, and refuses to report an interval whose centre moved. |
+| `uncertainty_proba.py` | **Method 2.** Draws each seep's class from its posterior and makes the headline the posterior sum, with the Poisson-binomial closed form as a cross-check and a grouping-threshold sweep beside the interval. |
+| `test_chain.py` | Acceptance tests for the single-implementation chain. Run after any edit to `chain.py`, `postproc.py` or either uncertainty module. It SKIPS when its inputs are absent, and a skip is not a pass. |
 | `build_artifacts.py` | Fits both post-hoc forests **once** and freezes them beside the checkpoint as `grouper_rf.joblib` / `classifier_rf.joblib` / `artifacts.json`. The manifest carries the sklearn version, the seed, and the sha256 of every input pack — the triple that makes a flux number reproducible. `load_artifacts` warns loudly on a sklearn mismatch rather than failing silently. |
 | `runinfo.py` | Reads/writes the run metadata **inside** each output GeoPackage, as a registered `attributes` table. QGIS lists it, GDAL ignores it when reading the spatial layer. |
 | — | **The entry point is `deploy.py` at the repo root**, not a module here. `deploy_lake.slurm` submits it. Each stage module keeps its own `main()` so it can be run alone when needed. |
@@ -225,11 +410,8 @@ actually read runs anywhere.
 
 **`surveyed_area_m2` travels with every total**, and it travels *inside* the
 GeoPackage rather than in a sidecar, so copying `seeps.gpkg` somewhere can't
-separate the count from the area it was counted over. It is measured, never
-configured: valid pixels (alpha band ∩ lake polygon) accumulated per tile core,
-including tiles where nothing was detected. A count-based flux figure without
-that denominator is not comparable to a field campaign, to another lake, or to
-itself on another date.
+separate the count from the area it was counted over. It is measured: valid pixels (alpha band ∩ lake polygon) accumulated per tile core,
+including tiles where nothing was detected.
 
 ## Other
 
