@@ -297,11 +297,19 @@ def drop_layer(gpkg, layer):
             (f"rtree_{layer}_%",)).fetchall()]
         for name in trigs + [n for n, t in aux if t == "trigger"]:
             cur.execute(f'DROP TRIGGER IF EXISTS "{name}"')
-        # dropping the rtree VIRTUAL table takes its _rowid/_node/_parent
-        # shadow tables with it; IF EXISTS covers whatever order they land in.
-        for name, typ in aux:
-            if typ == "table":
+        # Dropping the rtree VIRTUAL table takes its _rowid/_node/_parent shadow
+        # tables with it, so drop it FIRST and treat the shadows as best-effort.
+        # IF EXISTS is not enough on its own: sqlite still raises "no such table"
+        # on a shadow whose virtual parent went away earlier in the same
+        # transaction, and sqlite_master does not order the parent last.
+        vtab = f"rtree_{layer}_geom"
+        shadows = [n for n, t in aux if t == "table" and n != vtab]
+        for name in [vtab] + shadows:
+            try:
                 cur.execute(f'DROP TABLE IF EXISTS "{name}"')
+            except sqlite3.OperationalError as exc:
+                if "no such table" not in str(exc):
+                    raise
         cur.execute(f'DROP TABLE IF EXISTS "{layer}"')
         cur.execute("DELETE FROM gpkg_geometry_columns WHERE table_name=?", (layer,))
         cur.execute("DELETE FROM gpkg_contents WHERE table_name=?", (layer,))

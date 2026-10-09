@@ -110,7 +110,13 @@ def _require(path, what):
 
 # historical_size_priors.json -> "grouping" block.
 CAND_RADIUS = 0.5        # candidate_radius_m (p95 major axis): max plausible gap
-AGGLOM_CAP_M = 1.0       # agglomeration_major_cap_m (p99): wider clusters bridge >1 seep
+# Raised from the priors' 1.0 m on 2026-10-08, measured on the 4,136 seeps in
+# final_complete_class_pack. A 1.0 m cap breaks 9 of them and 8 of those are C, the
+# class carrying the flux. Their centroid spans run 1.01 to 1.34 m and then jump to
+# 1.99 m, so 1.4 m recovers 8 of the 9 and nothing between 1.34 and 1.99 m exists to
+# buy with a wider cap. The holdout is 48.tif group 521 (13 bubbles, 1.99 m span).
+# The cap constrains centroid span, so hulls reach roughly 0.2 m wider than this.
+AGGLOM_CAP_M = 1.4       # agglomeration_major_cap_m: wider clusters bridge >1 seep
 
 # THE seed for every model fit here and in deploy_grouper.train_model. Both
 # forests and the tree are deterministic given it, so the same packs plus the

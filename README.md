@@ -92,7 +92,7 @@ single evaluation run yields both pixel and bubble metrics.
        ▼   ◄── a bubble becomes part of a SEEP here ──────────────────────────
  tools/grouping/train_grouper.py        learned pairwise "same-seep?" random forest
  tools/grouping/deploy_grouper.py       candidate pairs <= 0.5 m -> P(same) -> threshold
-       │                                -> diameter-capped agglomeration (1.0 m)
+       │                                -> diameter-capped agglomeration (1.4 m)
        ▼                                -> seep_group_id
  tools/classify/fit_classifier.py       per-seep A / B / C
        │
@@ -164,7 +164,7 @@ Every tool runs as a module from the repo root:
 
 ```bash
 python -m tools.eval.bubble_level_eval
-python -m tools.grouping.deploy_grouper PACK.gpkg --thr 0.6 --cap 1.0
+python -m tools.grouping.deploy_grouper PACK.gpkg --thr 0.6 --cap 1.4
 ```
 
 
